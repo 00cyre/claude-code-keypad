@@ -73,20 +73,25 @@ Device I/O comes from [creator-micro-kit](https://github.com/00cyre/creator-micr
 
 ## Requirements
 
-The keypad must have a layer that is **linked to the Claude desktop app** and
-maps `KV_OAI_AG*` keycodes. Only that layer is driven — other profiles are left
-completely alone, so a gaming profile does not get its lights rewritten because
-a chat went idle.
+One layer needs keys mapped to `KV_OAI_AG00` … `KV_OAI_AG05`. Without those
+keycodes the firmware will not colour individual keys at all.
+
+Which layer to drive is worked out in this order:
+
+1. `--layer <profile>/<index>` if you pass one
+2. the layer linked to the Claude desktop app in the Input app
+3. otherwise `install` lists the layers that *could* work and asks you to pick
+
+You do **not** have to be sitting on that layer. Colours are sent continuously,
+and the firmware only renders them on a layer carrying those keycodes — so the
+board is already correct the moment you switch to it, and other profiles are
+unaffected because they have no `KV_OAI_AG` keys to paint.
 
 ```sh
 npx github:00cyre/claude-code-keypad doctor
 ```
 
-tells you which of those two conditions is missing and what to change in the
-Input app. `install` runs the same check and refuses to pretend it worked.
-
-Pass `--any-layer` to drive every layer that has the keycodes, ignoring the app
-link.
+reports what it found and what is missing.
 
 ## Mapping the keys
 

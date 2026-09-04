@@ -98,25 +98,65 @@ if (command === "doctor") {
   process.exit(0);
 }
 
-if (command === "install") {
-  await service.install(raw);
-  // Installing succeeds even when the keypad is not set up — the login item is
-  // still correct — but say so plainly rather than leaving them watching a
-  // board that will never light.
+/** Asks which layer to drive, when the keymap does not say. */
+async function chooseLayer(board) {
+  const candidates = [...board.layers].filter(([, l]) => l.agKeys > 0);
+  if (!candidates.length) return null;
+  if (!process.stdin.isTTY) {
+    console.error("\nNo layer is linked to the Claude app. Re-run with --layer, e.g.");
+    console.error(`  --layer ${candidates[0][0]}`);
+    console.error("Candidates (layers that map KV_OAI_AG keycodes):");
+    for (const [key, l] of candidates) console.error(`  ${key}  ${l.name} (${l.agKeys} keys)`);
+    return null;
+  }
+  console.log("\nNo layer is linked to the Claude desktop app.");
+  console.log("These layers map KV_OAI_AG keycodes, so any of them can be driven:\n");
+  candidates.forEach(([key, l], i) => console.log(`  ${i + 1}) ${key}  ${l.name}  (${l.agKeys} keys)`));
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const problem = explain((await inspect()).survey);
-    if (problem) {
+    while (true) {
+      const answer = (await rl.question(`\nWhich one? [1-${candidates.length}, or Enter to skip] `)).trim();
+      if (!answer) return null;
+      const n = Number(answer);
+      if (Number.isInteger(n) && n >= 1 && n <= candidates.length) return candidates[n - 1][0];
+      console.log("Please give a number from the list.");
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+if (command === "install") {
+  const args = [...raw];
+  let board = null;
+  try {
+    board = (await inspect()).survey;
+  } catch (error) {
+    console.error(`Could not read the keypad (${error.message}) — installing anyway.`);
+  }
+
+  // Prefer the app link; otherwise let them pick, rather than refusing.
+  if (board && !options.layer && !board.drivable.length) {
+    const picked = await chooseLayer(board);
+    if (picked) { args.push("--layer", picked); console.log(`\nusing layer ${picked}`); }
+  }
+
+  await service.install(args);
+
+  if (board) {
+    const pinned = options.layer || args[args.indexOf("--layer") + 1];
+    if (board.drivable.length || pinned) {
+      console.log(`✓ will drive ${board.drivable[0]?.[0] ?? pinned}${board.drivable.length ? " (linked to Claude)" : " (pinned)"}.`);
+    } else {
       console.error(`\n${"─".repeat(68)}`);
-      console.error("Installed, but it will not light anything up yet:\n");
-      console.error(problem);
-      console.error(`\nFix that, then: npx github:00cyre/claude-code-keypad doctor`);
+      console.error("Installed, but nothing will light up yet:\n");
+      console.error(explain(board));
+      console.error("\nThen either link that layer to Claude in the Input app, or re-run");
+      console.error("install and pick the layer when prompted.");
       console.error("─".repeat(68));
       process.exit(1);
     }
-    console.log("✓ keypad is set up correctly — the Claude-linked layer will light up.");
-  } catch (error) {
-    console.error(`\nCould not check the keypad (${error.message}).`);
-    console.error("Plug it in and run: npx github:00cyre/claude-code-keypad doctor");
   }
   process.exit(0);
 }
@@ -144,15 +184,26 @@ const switcher = new Switcher({
 });
 
 let board = survey(JSON.parse((await device.readFile("keymap.json")).toString("utf8")));
-const drivableKeys = () => new Set(
-  options.anyLayer
-    ? [...board.layers].filter(([, l]) => l.agKeys > 0).map(([k]) => k)
-    : board.drivable.map(([k]) => k),
-);
-let drivable = drivableKeys();
-say(`driving: ${[...drivable].map((k) => `${k} ${board.layers.get(k).name}`).join(", ") || "nothing"}`);
-const problem = explain(board);
-if (problem && !options.anyLayer) console.log(`\n${problem}\n`);
+
+/**
+ * Which layer this is for. A pinned --layer wins; otherwise the layer linked
+ * to the Claude app. This is reported, not enforced: the firmware only paints
+ * KV_OAI_AG keys, which exist on that layer alone, so sending colours while
+ * another layer is up is harmless and means the board is already right the
+ * moment you switch back. Gating on the *active* layer just meant a dark board
+ * whenever the device reported an index the keymap did not describe.
+ */
+function target() {
+  if (options.layer) return [options.layer, board.layers.get(options.layer)];
+  return board.drivable[0] ?? board.linked[0] ?? null;
+}
+const chosen = target();
+if (chosen) say(`for layer ${chosen[0]}${chosen[1]?.name ? ` (${chosen[1].name})` : ""}`);
+else {
+  const problem = explain(board);
+  console.log(`\n${problem}\n`);
+  console.log("Or pin one yourself, e.g.  --layer 1/1   (see: claude-code-keypad doctor)\n");
+}
 
 let selected = 0;
 let lastSignature = null;
@@ -160,20 +211,6 @@ let lastLayer = null;
 let painting = null;
 
 async function tick() {
-  const status = await device.getStatus();
-  const key = `${status.profile_index}/${status.layer_index}`;
-  const active = drivable.has(key);
-
-  if (key !== lastLayer) {
-    const layer = board.layers.get(key);
-    say(active
-      ? `on ${key} (${layer?.name}) — driving it`
-      : `on ${key} (${layer?.name ?? "?"}) — not the Claude layer, leaving it alone`);
-    lastLayer = key;
-  }
-  // Another profile's lighting is not ours to rewrite.
-  if (!active) { painting = false; return; }
-
   const sessions = sessionStatuses().slice(0, options.keys);
   const row = slots(sessions, options.keys);
   if (!row[selected]?.session) {
@@ -186,7 +223,7 @@ async function tick() {
   await device.setZones({ ambient: zoneFor(focus), keys: zoneFor(focus) });
 
   const signature = row.map(({ session }) => `${session?.sessionId ?? "-"}:${session?.state ?? "-"}`).join("|") + `#${selected}`;
-  if (signature !== lastSignature || painting === false) {
+  if (signature !== lastSignature) {
     lastSignature = signature;
     console.log(`\n${stamp()} ── keys ──`);
     for (const { id, session, look } of row) {
@@ -230,7 +267,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, async () => {
     stopping = true;
     clearInterval(timer);
-    if (painting) {
+    {
       say("clearing keys");
       const off = { effect: Effect.off, brightness: 0, speed: 0, color: "#000000", magic: 1 };
       await device.setThreadColors(Array.from({ length: options.keys }, (_, id) => threadFor(id, Empty))).catch(() => {});

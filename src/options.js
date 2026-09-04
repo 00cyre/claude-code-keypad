@@ -13,6 +13,7 @@ export const DEFAULT_OPTIONS = {
   keys: 6,
   interval: 2000,
   app: "Claude",
+  layer: null,
   switching: true,
   anyLayer: false,
 };
@@ -54,6 +55,12 @@ export function parse(argv) {
       case "--keys": options.keys = Number(next()); break;
       case "--interval": options.interval = Number(next()); break;
       case "--app": options.app = next(); break;
+      case "--layer": {
+        const v = next();
+        if (!/^\d+\/\d+$/.test(v)) throw new Error(`--layer wants profile/index, e.g. 1/1 — got ${v}`);
+        options.layer = v;
+        break;
+      }
       case "--no-switch": options.switching = false; break;
       case "--any-layer": options.anyLayer = true; break;
       case "--once": options.once = true; break;
