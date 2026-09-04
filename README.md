@@ -100,24 +100,39 @@ Device I/O comes from [creator-micro-kit](https://github.com/00cyre/creator-micr
 One layer needs keys mapped to `KV_OAI_AG00` … `KV_OAI_AG05`. Without those
 keycodes the firmware will not colour individual keys at all.
 
-Which layer to drive is worked out in this order:
+`install` shows every layer and asks which one is Claude's, using the Input
+app's numbering, with the detected one as the default:
 
-1. `--layer <profile>/<index>` if you pass one
-2. the layer linked to the Claude desktop app in the Input app
-3. otherwise `install` lists every layer and asks you to pick — including ones
-   that do not have the keycodes yet, since a layer you have not finished
-   setting up is still the layer you meant
-
-You do **not** have to be sitting on that layer. Colours are sent continuously,
-and the firmware only renders them on a layer carrying those keycodes — so the
-board is already correct the moment you switch to it, and other profiles are
-unaffected because they have no `KV_OAI_AG` keys to paint.
-
-```sh
-npx github:00cyre/claude-code-keypad doctor
+```
+  1) profile 1, layer 1 "Layer 1"  [0/0]  needs KV_OAI_AG keycodes
+  2) profile 2, layer 1 "Codex"    [1/0]  6 keys ready
+  3) profile 2, layer 2 "Claude"   [1/1]  6 keys ready · linked to Claude · detected
 ```
 
-reports what it found and what is missing.
+`--layer 1/1` pins one without being asked. `doctor` reports what it found.
+
+### Colours are device-wide, not per layer
+
+Worth knowing before you wonder why your Codex layer lit up too. The firmware's
+`v.oai.thstatus` takes `id, color, brightness, effect, speed, syncKeysLighting,
+syncAmbientLighting` — and **no layer or profile field**. Thread colours belong
+to the device, so *every* layer carrying `KV_OAI_AG` keycodes shows the same
+ones. Choosing a layer cannot scope them, because the firmware has nowhere to
+put that.
+
+What it can do is decide when to send at all:
+
+```sh
+claude-code-keypad install --only-on-layer
+```
+
+With that, colours go out only while the chosen layer is up, so your other
+`KV_OAI_AG` layers keep whatever put them there — the ChatGPT integration, for
+instance, which writes to the same thread state and will otherwise fight this
+for it.
+
+Without it, colours are sent continuously. You do not have to be on the layer,
+and the board is already right the moment you switch to it.
 
 ## Mapping the keys
 

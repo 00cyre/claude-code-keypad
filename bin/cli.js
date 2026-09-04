@@ -4,7 +4,7 @@ import { open, Effect } from "creator-micro-kit";
 import { sessionStatuses } from "../src/sessions.js";
 import { slots, mostUrgent, threadFor, zoneFor, configure, Empty, DEFAULTS } from "../src/status.js";
 import { Switcher } from "../src/switcher.js";
-import { survey, explain } from "../src/layers.js";
+import { survey, explain, describeLayer } from "../src/layers.js";
 import { parse, STATE_FLAGS } from "../src/options.js";
 import * as service from "../src/service.js";
 import * as permissions from "../src/permissions.js";
@@ -35,6 +35,7 @@ Options:
                       (default: send to whatever is already frontmost)
   --no-switch         show status only; do not send Cmd+N on a keypress
   --any-layer         drive every layer, not only the Claude-linked one
+  --only-on-layer     send colours only while the chosen layer is active
   --once              paint one frame, print it, and exit
   --test-switch <n>   send the switch keystroke for key n and exit
 
@@ -116,8 +117,8 @@ if (command === "doctor") {
     const { survey: s, info } = await service.withServicePaused(() => inspect());
     console.log(`device      : ${info.product} over ${info.transport}`);
     console.log(`claude app  : ${s.apps.map((a) => `${a.name} <${a.process}>`).join(", ") || "not linked"}`);
-    console.log(`linked layer: ${s.linked.map(([k, l]) => `${k} ${l.name}`).join(", ") || "none"}`);
-    console.log(`drivable    : ${s.drivable.map(([k, l]) => `${k} ${l.name} (${l.agKeys} keys)`).join(", ") || "none"}`);
+    console.log(`linked layer: ${s.linked.map(([k, l]) => describeLayer(k, l)).join(", ") || "none"}`);
+    console.log(`drivable    : ${s.drivable.map(([k, l]) => `${describeLayer(k, l)} (${l.agKeys} keys)`).join(", ") || "none"}`);
     const problem = explain(s);
     if (problem) console.log(`\n${problem}`);
     const grants = await permissions.report({
@@ -142,39 +143,45 @@ if (command === "doctor") {
  * not one you are forbidden to choose — hiding it just leaves you wondering
  * where your layer went.
  */
-async function chooseLayer(board) {
+async function chooseLayer(board, detected) {
   const all = [...board.layers];
   if (!all.length) return null;
   const describe = ([key, l]) => {
-    const bits = [`${key}`.padEnd(5), (l.name ?? "?").padEnd(12)];
-    bits.push(l.agKeys > 0 ? `${l.agKeys} keys ready` : "needs KV_OAI_AG keycodes");
-    if (l.linked) bits.push("· linked to Claude");
-    return bits.join(" ");
+    const state = l.agKeys > 0 ? `${l.agKeys} keys ready` : "needs KV_OAI_AG keycodes";
+    const marks = [state];
+    if (l.linked) marks.push("linked to Claude");
+    if (key === detected) marks.push("detected");
+    return `${describeLayer(key, l)}  ${marks.join(" · ")}`;
   };
 
   if (!process.stdin.isTTY) {
-    console.error("\nNo layer is linked to the Claude app. Re-run with --layer, e.g.");
-    console.error(`  --layer ${(all.find(([, l]) => l.agKeys > 0) ?? all[0])[0]}`);
-    console.error("\nLayers on this keypad:");
+    if (detected) return detected;
+    console.error("\nPick a layer with --layer. Available:");
     for (const entry of all) console.error(`  ${describe(entry)}`);
     return null;
   }
 
-  console.log("\nNo layer is linked to the Claude desktop app, so pick one:\n");
+  console.log("\nWhich layer should show Claude's status?");
+  console.log("Numbering matches the Input app; the bracketed pair is what the device calls it.\n");
   all.forEach((entry, i) => console.log(`  ${i + 1}) ${describe(entry)}`));
+  const fallback = detected ? all.findIndex(([k]) => k === detected) + 1 : 0;
+
   const { createInterface } = await import("node:readline/promises");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     while (true) {
-      const answer = (await rl.question(`\nWhich one? [1-${all.length}, or Enter to skip] `)).trim();
-      if (!answer) return null;
-      const n = Number(answer);
+      const prompt = fallback
+        ? `\nWhich one? [1-${all.length}, Enter for ${fallback}] `
+        : `\nWhich one? [1-${all.length}, or Enter to skip] `;
+      const answer = (await rl.question(prompt)).trim();
+      const n = answer === "" ? fallback : Number(answer);
+      if (!n) return null;
       if (Number.isInteger(n) && n >= 1 && n <= all.length) {
         const [key, layer] = all[n - 1];
+        console.log(`\nSelected ${describeLayer(key, layer)}`);
         if (!layer.agKeys) {
-          console.log(`\nNote: ${key} (${layer.name}) has no KV_OAI_AG keycodes yet, so it`);
-          console.log("cannot show colour until you map its keys to KV_OAI_AG00 … KV_OAI_AG05");
-          console.log("in the Input app. Pinning it anyway — it will light up once you do.");
+          console.log("It has no KV_OAI_AG keycodes yet, so it cannot show colour until you");
+          console.log("map its keys to KV_OAI_AG00 … KV_OAI_AG05 in the Input app.");
         }
         return key;
       }
@@ -194,10 +201,12 @@ if (command === "install") {
     console.error(`Could not read the keypad (${error.message}) — installing anyway.`);
   }
 
-  // Prefer the app link; otherwise let them pick, rather than refusing.
-  if (board && !options.layer && !board.drivable.length) {
-    const picked = await chooseLayer(board);
-    if (picked) { args.push("--layer", picked); console.log(`\nusing layer ${picked}`); }
+  // Always offer the choice. Auto-detection finds *a* Claude-linked layer, not
+  // necessarily the one you meant — and if you have both a Codex and a Claude
+  // layer, silently taking the first is exactly the wrong guess.
+  if (board && !options.layer) {
+    const picked = await chooseLayer(board, board.drivable[0]?.[0] ?? board.linked[0]?.[0]);
+    if (picked) args.push("--layer", picked);
   }
 
   await service.install(args);
@@ -332,7 +341,7 @@ function target() {
   return board.drivable[0] ?? board.linked[0] ?? null;
 }
 const chosen = target();
-if (chosen) say(`for layer ${chosen[0]}${chosen[1]?.name ? ` (${chosen[1].name})` : ""}`);
+if (chosen) say(`for ${describeLayer(chosen[0], chosen[1])}`);
 else {
   const problem = explain(board);
   console.log(`\n${problem}\n`);
@@ -345,6 +354,20 @@ let lastLayer = null;
 let painting = null;
 
 async function tick() {
+  if (options.onlyOnLayer && chosen) {
+    const status = await device.getStatus();
+    const key = `${status.profile_index}/${status.layer_index}`;
+    // Fail open on an index the keymap does not describe: the device reports
+    // layer indices beyond the ones it stores, and treating those as "not our
+    // layer" is what left a correctly configured keypad dark.
+    const known = board.layers.has(key);
+    if (known && key !== chosen[0]) {
+      if (key !== lastLayer) { say(`on ${describeLayer(key, board.layers.get(key))} — holding off`); lastLayer = key; }
+      return;
+    }
+    if (key !== lastLayer) { say(`on ${describeLayer(key, board.layers.get(key))}${known ? "" : " (unknown to the keymap; painting anyway)"}`); lastLayer = key; }
+  }
+
   const sessions = sessionStatuses().slice(0, options.keys);
   const row = slots(sessions, options.keys);
   if (!row[selected]?.session) {

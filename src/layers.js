@@ -12,6 +12,19 @@
 // Anything else is left strictly alone: a keypad with a gaming profile and a
 // work profile should not have its lights rewritten because a chat is idle.
 
+/**
+ * How the Input app would name a layer.
+ *
+ * The keymap counts profiles and layers from zero; the Input app shows them
+ * from one. Printing the raw "1/1" invites reading it as profile 1 when the
+ * app calls that profile 2, so always show both.
+ */
+export function describeLayer(key, layer) {
+  const [profile, index] = key.split("/").map(Number);
+  const name = layer?.name ? ` "${layer.name}"` : "";
+  return `profile ${profile + 1}, layer ${index + 1}${name}  [${key}]`;
+}
+
 /** Bundle ids for the Claude desktop app. */
 export const CLAUDE_BUNDLE_IDS = ["com.anthropic.claudefordesktop", "com.anthropic.claude"];
 
