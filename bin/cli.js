@@ -25,6 +25,8 @@ Usage: claude-code-keypad [options]
   --keys <n>       how many keys to drive (default 6)
   --interval <ms>  repaint interval (default 2000)
   --no-switch      show status only; do not send Cmd+N on a keypress
+  --app <name>     app to focus before the keystroke (default Claude, "none" = frontmost)
+  --test-switch <n>  send the switch keystroke for key n and exit
   --once           print what it would show, paint once, and exit
 
 Keys show the most recently active sessions, newest first:
@@ -38,10 +40,20 @@ This tells you if the layer you are on cannot show them.`);
 const stamp = () => new Date().toTimeString().slice(0, 8);
 const say = (...parts) => console.log(stamp(), ...parts);
 
+if (argv.includes("--test-switch")) {
+  const n = Number(argv[argv.indexOf("--test-switch") + 1]);
+  const app = argv.includes("--app") ? argv[argv.indexOf("--app") + 1] : "Claude";
+  const s = new Switcher({ onWarn: (m) => console.log(m), app: app === "none" ? null : app });
+  console.log(`sending the chat-${n} keystroke${app === "none" ? "" : ` to ${app}`}…`);
+  console.log(await s.switchTo(n) ? "keystroke sent" : "keystroke failed");
+  process.exit(0);
+}
+
 const device = await open({ reconnect: true, reconnectDelay: 2000 });
 say(`connected to ${device.info.product} over ${device.info.transport}`);
 
-const switcher = new Switcher({ onWarn: (message) => say(message) });
+const targetApp = argv.includes("--app") ? argv[argv.indexOf("--app") + 1] : "Claude";
+const switcher = new Switcher({ onWarn: (message) => say(message), app: targetApp === "none" ? null : targetApp });
 
 // Which layers can actually show per-key colour. Measured behaviour: the
 // firmware paints thread id N onto the key carrying KV_OAI_AG{N}, so a layer
