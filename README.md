@@ -12,28 +12,18 @@ whole thing:
 ```
 Set up my Work Louder Creator Micro 2 to show Claude Code session status on its keys.
 
-1. Run: npx github:00cyre/claude-code-keypad doctor
-2. If it reports a problem, tell me exactly what to click in the Work Louder
-   Input app to fix it. Two things are needed: a layer linked to the Claude
-   desktop app, and that layer's keys mapped to KV_OAI_AG00..KV_OAI_AG05.
-   Wait for me to do it, then run doctor again.
-3. Once doctor passes, run: npx github:00cyre/claude-code-keypad install
-4. Confirm with: npx github:00cyre/claude-code-keypad status
+Run: npx github:00cyre/claude-code-keypad install
 
-Before changing anything on the device, back up my keymap with
-`npx creator-micro-kit pull keymap.json ./keymap.backup.json` and tell me the
-checksum. Quit the Input app before any write to the device — two writers
-corrupt each other. Note that KV_OAI_AG keycodes send no keystroke of their
-own, so any macros on those keys stop working from the device; the daemon
-sends Cmd+N instead. Tell me which macros that affects before you do it.
+It will ask which layer to use and map that layer's keycodes itself. Before you
+answer, tell me which layer you are picking and which of my existing macros it
+will unbind — it prints both. Do not pass --yes; I want to see the plan.
+
+If anything fails, run `npx github:00cyre/claude-code-keypad doctor` and tell me
+what it says rather than guessing.
 ```
 
-| Colour | Meaning |
-| --- | --- |
-| pulsing yellow | working — the assistant is mid-turn |
-| green | waiting on you — it has stopped and wants a reply |
-| blue | away — nothing for an hour |
-| off | no session for that key |
+It backs the keymap up to `~/.claude-code-keypad/backups/` before changing
+anything, and prints the path.
 
 ## Install
 
@@ -97,10 +87,11 @@ Device I/O comes from [creator-micro-kit](https://github.com/00cyre/creator-micr
 
 ## Requirements
 
-One layer needs keys mapped to `KV_OAI_AG00` … `KV_OAI_AG05`. Without those
-keycodes the firmware will not colour individual keys at all.
+One layer needs keys mapped to `KV_OAI_AG00` … `KV_OAI_AG05` — without those
+keycodes the firmware will not colour individual keys at all. **`install` maps
+them for you**; you do not need to do anything in the Input app.
 
-`install` shows every layer and asks which one is Claude's, using the Input
+It shows every layer and asks which one is Claude's, using the Input
 app's numbering, with the detected one as the default:
 
 ```
@@ -109,7 +100,21 @@ app's numbering, with the detected one as the default:
   3) profile 2, layer 2 "Claude"   [1/1]  6 keys ready · linked to Claude · detected
 ```
 
-`--layer 1/1` pins one without being asked. `doctor` reports what it found.
+`--layer 1/1` pins one without being asked; `--yes` skips the confirmation.
+
+If the layer you choose does not have the keycodes, it maps them: it backs the
+keymap up to `~/.claude-code-keypad/backups/`, prints exactly which keys change
+and which macros stop working, quits the Input app for the write (the device
+takes one byte stream, and two writers corrupt each other), writes, verifies
+against the device's own checksum, and reopens the app.
+
+Restoring is one command:
+
+```sh
+npx creator-micro-kit push keymap.json ~/.claude-code-keypad/backups/keymap-….json
+```
+
+`doctor` reports what it found.
 
 ### Colours are device-wide, not per layer
 

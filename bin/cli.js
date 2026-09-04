@@ -8,6 +8,7 @@ import { survey, explain, describeLayer } from "../src/layers.js";
 import { parse, STATE_FLAGS } from "../src/options.js";
 import * as service from "../src/service.js";
 import * as permissions from "../src/permissions.js";
+import * as remap from "../src/remap.js";
 
 const raw = process.argv.slice(2);
 const command = raw[0] && !raw[0].startsWith("-") ? raw.shift() : null;
@@ -36,6 +37,7 @@ Options:
   --no-switch         show status only; do not send Cmd+N on a keypress
   --any-layer         drive every layer, not only the Claude-linked one
   --only-on-layer     send colours only while the chosen layer is active
+  -y, --yes           map the chosen layer's keycodes without asking
   --once              paint one frame, print it, and exit
   --test-switch <n>   send the switch keystroke for key n and exit
 
@@ -192,6 +194,80 @@ async function chooseLayer(board, detected) {
   }
 }
 
+/**
+ * Maps a layer's first six keys to KV_OAI_AG00… if they are not already.
+ *
+ * This is the destructive step, so: back up first, say exactly what stops
+ * working, and quit the Input app — the device takes one byte stream and two
+ * writers corrupt each other.
+ */
+async function ensureMapped(layerKey, { assumeYes }) {
+  const device = await open();
+  let bytes;
+  try {
+    bytes = await device.readFile("keymap.json");
+  } finally {
+    await device.close();
+  }
+  const keymap = JSON.parse(bytes.toString("utf8"));
+  const plan = remap.planRemap(keymap, layerKey, options.keys);
+  if (!plan.changes.length) return true;
+
+  const saved = remap.backup(bytes);
+  console.log(`\nMapping ${plan.changes.length} keys on ${describeLayer(layerKey, { name: plan.layerName })}:`);
+  for (const change of plan.changes) {
+    console.log(`  key ${change.key}: ${change.was} → ${change.to}`);
+  }
+  const losing = plan.changes.filter((c) => c.from !== "KC_NONE");
+  if (losing.length) {
+    console.log(`\n${losing.length} of those currently do something, and will stop doing it from`);
+    console.log("the device — KV_OAI_AG keycodes send no keystroke, which is why the");
+    console.log("firmware is willing to colour them. This sends Cmd+N on the press instead.");
+  }
+  console.log(`\nBacked up to ${saved}`);
+
+  if (!assumeYes) {
+    if (!process.stdin.isTTY) {
+      console.error("\nRe-run with --yes to apply this, or map the keys yourself in the Input app.");
+      return false;
+    }
+    const { createInterface } = await import("node:readline/promises");
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    const answer = (await rl.question("\nApply it? [Y/n] ")).trim().toLowerCase();
+    rl.close();
+    if (answer && !/^y(es)?$/.test(answer)) { console.log("left alone."); return false; }
+  }
+
+  const wasRunning = await remap.inputAppRunning();
+  if (wasRunning) {
+    console.log("quitting the Input app so it cannot write at the same time…");
+    if (!await remap.quitInputApp()) {
+      console.error("could not quit it — quit it yourself and re-run.");
+      return false;
+    }
+  }
+  try {
+    const writer = await open();
+    try {
+      await writer.writeFile("keymap.json", Buffer.from(JSON.stringify(plan.keymap)));
+    } finally {
+      await writer.close().catch(() => {});
+    }
+    // The device re-enumerates as it reloads; give it a moment before anyone
+    // else opens it.
+    await new Promise((r) => setTimeout(r, 6000));
+    console.log("✓ keys mapped and verified on the device");
+    return true;
+  } catch (error) {
+    console.error(`\nWriting the keymap failed: ${error.message}`);
+    console.error(`Your original is at ${saved} — restore it with:`);
+    console.error(`  npx creator-micro-kit push keymap.json ${saved}`);
+    return false;
+  } finally {
+    if (wasRunning) await remap.openInputApp();
+  }
+}
+
 if (command === "install") {
   const args = [...raw];
   let board = null;
@@ -206,7 +282,15 @@ if (command === "install") {
   // layer, silently taking the first is exactly the wrong guess.
   if (board && !options.layer) {
     const picked = await chooseLayer(board, board.drivable[0]?.[0] ?? board.linked[0]?.[0]);
-    if (picked) args.push("--layer", picked);
+    if (picked) {
+      args.push("--layer", picked);
+      // If it cannot show colour yet, map it rather than sending them away to
+      // do it by hand. One run should leave a working keypad.
+      if (!board.layers.get(picked)?.agKeys) {
+        await ensureMapped(picked, { assumeYes: raw.includes("--yes") || raw.includes("-y") });
+        board = (await inspect().catch(() => ({ survey: board }))).survey;
+      }
+    }
   }
 
   await service.install(args);

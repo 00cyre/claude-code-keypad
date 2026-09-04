@@ -18,6 +18,7 @@ export const DEFAULT_OPTIONS = {
   switching: true,
   anyLayer: false,
   onlyOnLayer: false,
+  assumeYes: false,
 };
 
 /**
@@ -66,6 +67,7 @@ export function parse(argv) {
       case "--no-switch": options.switching = false; break;
       case "--any-layer": options.anyLayer = true; break;
       case "--only-on-layer": options.onlyOnLayer = true; break;
+      case "--yes": case "-y": options.assumeYes = true; break;
       case "--once": options.once = true; break;
       // Handled by the CLI, but must be known here or parsing rejects it.
       case "--test-switch": options.testSwitch = Number(next()); break;
