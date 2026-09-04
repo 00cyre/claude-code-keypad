@@ -50,3 +50,13 @@ test("the board-wide colour is the most urgent state present", () => {
   assert.equal(mostUrgent(of(State.idle, State.yourTurn, State.working)), State.yourTurn);
   assert.equal(mostUrgent([]), undefined);
 });
+
+test("the login item uses a node path that survives an upgrade", async () => {
+  const { stableNodePath } = await import("../src/service.js");
+  const fs = await import("node:fs");
+  const chosen = stableNodePath();
+  // Whatever it picks must be the same binary we are running right now.
+  assert.equal(fs.realpathSync(chosen), fs.realpathSync(process.execPath));
+  // And on Homebrew it must not be the version-pinned Cellar path.
+  if (process.execPath.includes("/Cellar/")) assert.ok(!chosen.includes("/Cellar/"), `still pinned: ${chosen}`);
+});

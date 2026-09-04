@@ -19,6 +19,22 @@ export const LOG = path.join(os.homedir(), "Library", "Logs", "claude-code-keypa
 const SPEC = "github:00cyre/claude-code-keypad";
 const INSTALLED_CLI = path.join(HOME, "node_modules", "claude-code-keypad", "bin", "cli.js");
 
+/**
+ * A node path that survives an upgrade. `process.execPath` on Homebrew is
+ * version-pinned (…/Cellar/node/25.9.0_2/bin/node) and vanishes on the next
+ * `brew upgrade node`, taking the login item with it silently. Prefer a
+ * stable symlink that resolves to the very same binary.
+ */
+export function stableNodePath(execPath = process.execPath) {
+  const real = fs.realpathSync(execPath);
+  for (const candidate of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"]) {
+    try {
+      if (fs.realpathSync(candidate) === real) return candidate;
+    } catch { /* not present */ }
+  }
+  return execPath;
+}
+
 const escape = (value) => String(value).replace(/[&<>'"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&apos;", '"': "&quot;" }[c]));
 
@@ -68,8 +84,10 @@ export async function install(args = []) {
 
   fs.mkdirSync(path.dirname(PLIST), { recursive: true });
   fs.mkdirSync(path.dirname(LOG), { recursive: true });
-  fs.writeFileSync(PLIST, plist(process.execPath, INSTALLED_CLI, args));
+  const nodePath = stableNodePath();
+  fs.writeFileSync(PLIST, plist(nodePath, INSTALLED_CLI, args));
   console.log(`wrote ${PLIST}`);
+  console.log(`  node: ${nodePath}${nodePath === process.execPath ? "" : "  (upgrade-stable symlink)"}`);
 
   // Replace any previous copy; bootout is expected to fail when none is loaded.
   await launchctl(["bootout", `gui/${uid}/${LABEL}`]);

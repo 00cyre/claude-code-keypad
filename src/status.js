@@ -14,14 +14,16 @@ import { Effect } from "creator-micro-kit";
 import { State } from "./sessions.js";
 
 export const Look = {
-  [State.working]:  { color: "#2D7FF9", brightness: 1,    effect: Effect.breath, speed: 0.55, label: "working"   },
-  [State.stalled]:  { color: "#FF8C00", brightness: 1,    effect: Effect.solid,  speed: 0,    label: "needs you" },
-  [State.yourTurn]: { color: "#00C853", brightness: 1,    effect: Effect.solid,  speed: 0,    label: "your turn" },
-  // White rather than a dim grey: a session you have not touched in an hour is
-  // still open and still yours, and at 25% grey it was indistinguishable from
-  // a key with nothing behind it. White reads as "present, nothing happening",
-  // which is the actual state, and leaves the saturated colours to mean work.
-  [State.idle]:     { color: "#FFFFFF", brightness: 0.7,  effect: Effect.solid,  speed: 0,    label: "idle"      },
+  // Yellow, not blue, for the one state that has to be unmistakable. These
+  // keys use separate red/green/blue emitters rather than one mixed source,
+  // so a pure blue reads as near-white on the diffuser and loses against the
+  // idle keys. Yellow drives two of the three emitters hard and stays itself.
+  [State.working]:  { color: "#FFC400", brightness: 1,   effect: Effect.breath, speed: 0.75, label: "working"   },
+  [State.stalled]:  { color: "#2D7FF9", brightness: 1,   effect: Effect.solid,  speed: 0,    label: "needs you" },
+  [State.yourTurn]: { color: "#00C853", brightness: 1,   effect: Effect.solid,  speed: 0,    label: "your turn" },
+  // Held below the working colours so an untouched session reads as background
+  // rather than competing with the ones that want something.
+  [State.idle]:     { color: "#FFFFFF", brightness: 0.5, effect: Effect.solid,  speed: 0,    label: "idle"      },
 };
 
 /** Shown on a key with no session behind it. */
