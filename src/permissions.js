@@ -13,8 +13,27 @@
 // different subjects as far as the system is concerned.
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const run = promisify(execFile);
+
+// Asking is a one-off. macOS only offers its dialog to a process that is not
+// yet listed, so repeating it every restart just reopens System Settings at
+// somebody who has already decided.
+const ASKED_MARKER = path.join(os.homedir(), ".claude-code-keypad", ".permissions-asked");
+
+export function alreadyAsked() {
+  try { return fs.existsSync(ASKED_MARKER); } catch { return false; }
+}
+
+export function markAsked() {
+  try {
+    fs.mkdirSync(path.dirname(ASKED_MARKER), { recursive: true });
+    fs.writeFileSync(ASKED_MARKER, new Date().toISOString());
+  } catch { /* best effort */ }
+}
 
 export const ACCESSIBILITY_PANE =
   "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
@@ -64,6 +83,22 @@ export async function requestAccessibility() {
 /** Opens a System Settings pane. */
 export async function openPane(pane) {
   try { await run("open", [pane]); return true; } catch { return false; }
+}
+
+/**
+ * Asks macOS for whatever is missing: pokes it into showing its own dialog and
+ * opens the relevant pane. Attribution matters — the dialog names whichever
+ * process attempts the action — so this is worth calling from the daemon
+ * itself, which is the one that actually needs the grant.
+ */
+export async function requestMissing({ accessibility, automation }) {
+  if (!accessibility) {
+    await requestAccessibility();
+    await openPane(ACCESSIBILITY_PANE);
+  } else if (!automation) {
+    await openPane(AUTOMATION_PANE);
+  }
+  markAsked();
 }
 
 /** Checks both grants and explains what to do about whichever is missing. */

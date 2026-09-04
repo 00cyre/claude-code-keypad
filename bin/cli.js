@@ -26,6 +26,8 @@ Usage:
   claude-code-keypad doctor           check the keypad is set up correctly
   claude-code-keypad permissions      check macOS grants (--fix opens Settings)
 
+Install asks macOS for anything missing automatically; --no-prompt skips that.
+
 Options:
   --keys <n>          how many keys to drive (default 6)
   --interval <ms>     repaint interval (default 2000)
@@ -172,10 +174,10 @@ if (command === "install") {
     console.error(grants.text);
     console.error("\nRun this once you have done it:  claude-code-keypad permissions");
     console.error("─".repeat(68));
-    if (process.stdin.isTTY) {
-      await permissions.requestAccessibility();
-      await permissions.openPane(grants.accessibility ? permissions.AUTOMATION_PANE : permissions.ACCESSIBILITY_PANE);
-      console.error("\n(opened the System Settings pane for you)");
+    if (!raw.includes("--no-prompt")) {
+      await permissions.requestMissing(grants);
+      console.error("\nOpened the System Settings pane and asked macOS for the grant.");
+      console.error("Add the binary above, then the login item picks it up on its own.");
     }
   } else {
     console.log("✓ macOS permissions are in place — keys will switch chats.");
@@ -228,8 +230,12 @@ if (options.switching) {
   say(`permissions: accessibility ${grants.accessibility ? "ok" : "MISSING"}, automation ${grants.automation ? "ok" : "MISSING"}`);
   if (!grants.ok) {
     console.log(`\n${grants.text}\n`);
-    // Ask once, so macOS has a chance to offer its own dialog.
-    await permissions.requestAccessibility();
+    // The daemon is the process that actually needs the grant, so asking from
+    // here is what puts the right name in the system's dialog. Once only.
+    if (!permissions.alreadyAsked()) {
+      say("asking macOS for the missing permission…");
+      await permissions.requestMissing(grants);
+    }
   }
 }
 
