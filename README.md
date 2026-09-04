@@ -38,9 +38,16 @@ That is the whole setup — it runs from now on, comes back at login, and restar
 if it crashes.
 
 ```sh
-npx github:00cyre/claude-code-keypad status      # is it running?
+npx github:00cyre/claude-code-keypad status      # running? up to date?
+npx github:00cyre/claude-code-keypad update      # fetch the latest, same options
 npx github:00cyre/claude-code-keypad uninstall   # stop it, remove the login item
 ```
+
+**It does not update itself.** `install` puts a frozen copy in
+`~/.claude-code-keypad`, and that is what runs until you say otherwise. `status`
+checks GitHub and tells you when a newer commit exists; `update` reinstalls
+with exactly the options you installed with, so a `--layer` or colour you chose
+is not lost. Each machine is separate — updating one does nothing to another.
 
 Options after `install` are baked into the login item, so that is where to set
 your defaults:

@@ -16,6 +16,7 @@ export const LABEL = "com.00cyre.claude-code-keypad";
 export const HOME = path.join(os.homedir(), ".claude-code-keypad");
 export const PLIST = path.join(os.homedir(), "Library", "LaunchAgents", `${LABEL}.plist`);
 export const LOG = path.join(os.homedir(), "Library", "Logs", "claude-code-keypad.log");
+export const RECORD = path.join(HOME, "installed.json");
 const SPEC = "github:00cyre/claude-code-keypad";
 const INSTALLED_CLI = path.join(HOME, "node_modules", "claude-code-keypad", "bin", "cli.js");
 
@@ -99,6 +100,12 @@ export async function install(args = []) {
   await run("npm", ["install", "--silent", "--prefix", HOME, SPEC], { maxBuffer: 32 * 1024 * 1024 });
   if (!fs.existsSync(INSTALLED_CLI)) throw new Error(`install did not produce ${INSTALLED_CLI}`);
 
+  let commit = null;
+  try {
+    commit = JSON.parse(fs.readFileSync(path.join(HOME, "node_modules", "claude-code-keypad", "package.json"), "utf8")).gitHead ?? null;
+  } catch { /* not recorded by npm */ }
+  fs.writeFileSync(RECORD, JSON.stringify({ at: new Date().toISOString(), commit, args }, null, 2) + "\n");
+
   fs.mkdirSync(path.dirname(PLIST), { recursive: true });
   fs.mkdirSync(path.dirname(LOG), { recursive: true });
   const nodePath = stableNodePath();
@@ -127,6 +134,19 @@ export async function install(args = []) {
   console.log(`  stop      : npx ${SPEC} uninstall`);
   console.log(`\nIf pressing a key does not switch chats, grant Accessibility to`);
   console.log(`node (${nodePath}) in System Settings › Privacy & Security.`);
+}
+
+/** The options the current install was made with, or null if never installed. */
+export function installedArgs() {
+  try { return JSON.parse(fs.readFileSync(RECORD, "utf8")).args ?? []; } catch { return null; }
+}
+
+/** The commit on GitHub right now, to compare against what is installed. */
+export async function latestCommit() {
+  try {
+    const { stdout } = await run("git", ["ls-remote", "https://github.com/00cyre/claude-code-keypad.git", "HEAD"], { timeout: 15_000 });
+    return stdout.split(/\s/)[0] || null;
+  } catch { return null; }
 }
 
 /** Unloads the login item. Leaves the installed copy in place. */
@@ -171,4 +191,17 @@ export async function status() {
   const state = out.match(/state = (\S+)/)?.[1];
   console.log(`service  : loaded${state ? `, ${state}` : ""}${pid ? `, pid ${pid}` : ""}`);
   console.log(`logs     : ${LOG}`);
+  let record = null;
+  try { record = JSON.parse(fs.readFileSync(RECORD, "utf8")); } catch { /* older install */ }
+  if (record) {
+    console.log(`installed: ${record.at}${record.commit ? `, commit ${record.commit.slice(0, 7)}` : ""}${record.args?.length ? `, options: ${record.args.join(" ")}` : ""}`);
+    const latest = await latestCommit();
+    if (latest && record.commit) {
+      console.log(latest === record.commit
+        ? "version  : up to date"
+        : `version  : UPDATE AVAILABLE (${latest.slice(0, 7)}) — run: npx github:00cyre/claude-code-keypad update`);
+    }
+  } else {
+    console.log("installed: before install records existed — run update to refresh");
+  }
 }

@@ -13,6 +13,19 @@ import * as remap from "../src/remap.js";
 const raw = process.argv.slice(2);
 const command = raw[0] && !raw[0].startsWith("-") ? raw.shift() : null;
 
+// update = install again with exactly the options you installed with. Done
+// here, before parsing, so those options are what everything below sees.
+if (command === "update") {
+  const saved = service.installedArgs();
+  if (saved === null) {
+    console.error("Nothing is installed yet — run install first.");
+    process.exit(1);
+  }
+  console.log(`updating with the options you installed with${saved.length ? `: ${saved.join(" ")}` : ""}`);
+  raw.length = 0;
+  raw.push(...saved, "--no-prompt");
+}
+
 function usage() {
   const palette = Object.entries(STATE_FLAGS)
     .map(([flag, state]) => `  ${flag.padEnd(13)} ${DEFAULTS[state].color}  ${state}`)
@@ -22,6 +35,7 @@ function usage() {
 Usage:
   claude-code-keypad [options]        run in the foreground
   claude-code-keypad install [opts]   install as a login item and start it
+  claude-code-keypad update           fetch the latest and reinstall with the same options
   claude-code-keypad uninstall        stop it and remove the login item
   claude-code-keypad status           is it installed and running?
   claude-code-keypad doctor           check the keypad is set up correctly
@@ -268,8 +282,8 @@ async function ensureMapped(layerKey, { assumeYes }) {
   }
 }
 
-if (command === "install") {
-  const args = [...raw];
+if (command === "install" || command === "update") {
+  const args = [...raw.filter((a) => a !== "--no-prompt")];
   let board = null;
   try {
     board = (await inspect()).survey;
@@ -333,7 +347,7 @@ if (command === "install") {
 if (command === "uninstall") { await service.uninstall(); process.exit(0); }
 if (command === "status")    { await service.status();    process.exit(0); }
 if (command && command !== "run") {
-  console.error(`unknown command: ${command}  (try install, uninstall, status, doctor, run)`);
+  console.error(`unknown command: ${command}  (try install, update, uninstall, status, doctor, permissions, run)`);
   process.exit(1);
 }
 
