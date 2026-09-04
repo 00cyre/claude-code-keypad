@@ -244,8 +244,8 @@ if (command && command !== "run") {
   process.exit(1);
 }
 
-if (raw.includes("--test-switch")) {
-  const n = Number(raw[raw.indexOf("--test-switch") + 1]);
+if (options.testSwitch !== null && options.testSwitch !== undefined) {
+  const n = options.testSwitch;
   const switcher = new Switcher({ onWarn: console.log, app: options.app === "none" ? null : options.app });
   console.log(`sending the chat-${n} keystroke${options.app === "none" ? "" : ` to ${options.app}`}…`);
   console.log(await switcher.switchTo(n) ? "keystroke sent" : "keystroke failed");

@@ -107,3 +107,26 @@ test("the frontmost comparison actually evaluates", async () => {
   // Should evaluate without an AppleScript error; the outcome does not matter.
   await run("osascript", ["-e", probe], { timeout: 15_000 });
 });
+
+test("every documented flag is accepted by the parser", async () => {
+  // --test-switch was documented in --help and rejected by the parser, so the
+  // flag printed usage instead of doing anything. Keep the two in step.
+  const { parse } = await import("../src/options.js");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { stdout } = await promisify(execFile)(process.execPath, ["bin/cli.js", "--help"]);
+  const documented = [...stdout.matchAll(/^\s{2}(--[a-z-]+)/gm)].map((m) => m[1]);
+  const sample = {
+    "--keys": "4", "--interval": "2000", "--app": "Finder",
+    "--layer": "1/1", "--test-switch": "1",
+    "--working": "#FFC400", "--needs-you": "#00C853",
+    "--your-turn": "#00C853", "--idle": "#2D7FF9",
+  };
+  assert.ok(documented.length > 5, `only found ${documented.length} flags in --help`);
+  for (const flag of documented) {
+    assert.doesNotThrow(
+      () => parse(flag in sample ? [flag, sample[flag]] : [flag]),
+      `--help documents ${flag} but the parser rejects it`,
+    );
+  }
+});
