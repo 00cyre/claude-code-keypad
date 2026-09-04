@@ -104,7 +104,9 @@ Which layer to drive is worked out in this order:
 
 1. `--layer <profile>/<index>` if you pass one
 2. the layer linked to the Claude desktop app in the Input app
-3. otherwise `install` lists the layers that *could* work and asks you to pick
+3. otherwise `install` lists every layer and asks you to pick — including ones
+   that do not have the keycodes yet, since a layer you have not finished
+   setting up is still the layer you meant
 
 You do **not** have to be sitting on that layer. Colours are sent continuously,
 and the firmware only renders them on a layer carrying those keycodes — so the

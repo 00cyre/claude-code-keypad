@@ -12,7 +12,7 @@ export const STATE_FLAGS = {
 export const DEFAULT_OPTIONS = {
   keys: 6,
   interval: 2000,
-  app: "Claude",
+  app: null,          // null = send to whatever is frontmost
   layer: null,
   switching: true,
   anyLayer: false,

@@ -31,7 +31,8 @@ Install asks macOS for anything missing automatically; --no-prompt skips that.
 Options:
   --keys <n>          how many keys to drive (default 6)
   --interval <ms>     repaint interval (default 2000)
-  --app <name>        app to focus before the keystroke (default Claude, "none" = frontmost)
+  --app <name>        bring this app forward before the keystroke
+                      (default: send to whatever is already frontmost)
   --no-switch         show status only; do not send Cmd+N on a keypress
   --any-layer         drive every layer, not only the Claude-linked one
   --once              paint one frame, print it, and exit
@@ -101,7 +102,7 @@ async function inspect({ attempts = 4 } = {}) {
 
 if (command === "permissions") {
   const { text, ok } = await permissions.report({
-    app: options.app === "none" ? "System Events" : options.app,
+    app: options.app && options.app !== "none" ? options.app : "System Events",
     nodePath: service.stableNodePath(),
     fix: raw.includes("--fix"),
   });
@@ -120,7 +121,7 @@ if (command === "doctor") {
     const problem = explain(s);
     if (problem) console.log(`\n${problem}`);
     const grants = await permissions.report({
-      app: options.app === "none" ? "System Events" : options.app,
+      app: options.app && options.app !== "none" ? options.app : "System Events",
       nodePath: service.stableNodePath(),
     });
     console.log(`\n${grants.text}`);
@@ -133,28 +134,50 @@ if (command === "doctor") {
   process.exit(0);
 }
 
-/** Asks which layer to drive, when the keymap does not say. */
+/**
+ * Asks which layer to drive, when the keymap does not say.
+ *
+ * Lists every layer, not only the ones already able to show colour. A layer
+ * without KV_OAI_AG keycodes is a layer you have not finished setting up yet,
+ * not one you are forbidden to choose — hiding it just leaves you wondering
+ * where your layer went.
+ */
 async function chooseLayer(board) {
-  const candidates = [...board.layers].filter(([, l]) => l.agKeys > 0);
-  if (!candidates.length) return null;
+  const all = [...board.layers];
+  if (!all.length) return null;
+  const describe = ([key, l]) => {
+    const bits = [`${key}`.padEnd(5), (l.name ?? "?").padEnd(12)];
+    bits.push(l.agKeys > 0 ? `${l.agKeys} keys ready` : "needs KV_OAI_AG keycodes");
+    if (l.linked) bits.push("· linked to Claude");
+    return bits.join(" ");
+  };
+
   if (!process.stdin.isTTY) {
     console.error("\nNo layer is linked to the Claude app. Re-run with --layer, e.g.");
-    console.error(`  --layer ${candidates[0][0]}`);
-    console.error("Candidates (layers that map KV_OAI_AG keycodes):");
-    for (const [key, l] of candidates) console.error(`  ${key}  ${l.name} (${l.agKeys} keys)`);
+    console.error(`  --layer ${(all.find(([, l]) => l.agKeys > 0) ?? all[0])[0]}`);
+    console.error("\nLayers on this keypad:");
+    for (const entry of all) console.error(`  ${describe(entry)}`);
     return null;
   }
-  console.log("\nNo layer is linked to the Claude desktop app.");
-  console.log("These layers map KV_OAI_AG keycodes, so any of them can be driven:\n");
-  candidates.forEach(([key, l], i) => console.log(`  ${i + 1}) ${key}  ${l.name}  (${l.agKeys} keys)`));
+
+  console.log("\nNo layer is linked to the Claude desktop app, so pick one:\n");
+  all.forEach((entry, i) => console.log(`  ${i + 1}) ${describe(entry)}`));
   const { createInterface } = await import("node:readline/promises");
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     while (true) {
-      const answer = (await rl.question(`\nWhich one? [1-${candidates.length}, or Enter to skip] `)).trim();
+      const answer = (await rl.question(`\nWhich one? [1-${all.length}, or Enter to skip] `)).trim();
       if (!answer) return null;
       const n = Number(answer);
-      if (Number.isInteger(n) && n >= 1 && n <= candidates.length) return candidates[n - 1][0];
+      if (Number.isInteger(n) && n >= 1 && n <= all.length) {
+        const [key, layer] = all[n - 1];
+        if (!layer.agKeys) {
+          console.log(`\nNote: ${key} (${layer.name}) has no KV_OAI_AG keycodes yet, so it`);
+          console.log("cannot show colour until you map its keys to KV_OAI_AG00 … KV_OAI_AG05");
+          console.log("in the Input app. Pinning it anyway — it will light up once you do.");
+        }
+        return key;
+      }
       console.log("Please give a number from the list.");
     }
   } finally {
@@ -180,7 +203,7 @@ if (command === "install") {
   await service.install(args);
 
   const grants = await permissions.report({
-    app: options.app === "none" ? "System Events" : options.app,
+    app: options.app && options.app !== "none" ? options.app : "System Events",
     nodePath: service.stableNodePath(),
   });
   if (!grants.ok) {
@@ -234,12 +257,12 @@ say(`connected to ${device.info.product} over ${device.info.transport}`);
 
 const switcher = new Switcher({
   onWarn: (message) => say(message),
-  app: options.app === "none" ? null : options.app,
+  app: options.app && options.app !== "none" ? options.app : null,
 });
 
 if (options.switching) {
   const grants = await permissions.report({
-    app: options.app === "none" ? "System Events" : options.app,
+    app: options.app && options.app !== "none" ? options.app : "System Events",
     nodePath: process.execPath,
   });
   say(`permissions: accessibility ${grants.accessibility ? "ok" : "MISSING"}, automation ${grants.automation ? "ok" : "MISSING"}`);

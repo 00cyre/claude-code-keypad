@@ -60,3 +60,50 @@ test("the login item uses a node path that survives an upgrade", async () => {
   // And on Homebrew it must not be the version-pinned Cellar path.
   if (process.execPath.includes("/Cellar/")) assert.ok(!chosen.includes("/Cellar/"), `still pinned: ${chosen}`);
 });
+
+test("the generated AppleScript compiles", async (t) => {
+  // A parse error here does not surface until a key is pressed, and then only
+  // as a line in a log: `name of ... whose frontmost is true is not "X"` binds
+  // the `is true` into the outer comparison and fails at runtime with -1700.
+  const { Switcher } = await import("../src/switcher.js");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(execFile);
+
+  for (const app of [null, "Claude"]) {
+    for (const key of [1, 5, 6]) {
+      const script = new Switcher({ app }).scriptFor(key);
+      await t.test(`${app ?? "frontmost"} / key ${key}`, async () => {
+        await run("osacompile", ["-o", "/dev/null", "-e", script]);
+      });
+    }
+  }
+});
+
+test("by default it targets the frontmost app, naming nothing", async () => {
+  const { Switcher } = await import("../src/switcher.js");
+  const script = new Switcher({}).scriptFor(1);
+  assert.match(script, /key code 18 using command down/);
+  assert.doesNotMatch(script, /activate/, "should not bring any app forward");
+  assert.equal(script.split("\n").length, 1, "one line: press the key");
+});
+
+test("the frontmost comparison actually evaluates", async () => {
+  // The bug this guards was not a syntax error — the broken script compiled
+  // cleanly and failed only when run, with -1700, because
+  // `name of ... whose frontmost is true is not "X"` binds the `is true` into
+  // the outer comparison. So run the comparison for real. It only reads.
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const run = promisify(execFile);
+
+  const { Switcher } = await import("../src/switcher.js");
+  const probe = new Switcher({ app: "Finder" }).scriptFor(1)
+    .split("\n")
+    .filter((line) => !/^tell application "Finder" to activate$/.test(line))
+    .filter((line) => !/key code/.test(line))
+    .join("\n");
+
+  // Should evaluate without an AppleScript error; the outcome does not matter.
+  await run("osascript", ["-e", probe], { timeout: 15_000 });
+});

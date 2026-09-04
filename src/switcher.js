@@ -24,31 +24,44 @@ export class Switcher {
   #onWarn;
   #app;
 
-  /** `app` is brought to the front first; pass null to send to whatever is frontmost. */
-  constructor({ onWarn = () => {}, app = "Claude" } = {}) {
+  /** `app` is brought to the front first; the default sends to whatever is frontmost. */
+  constructor({ onWarn = () => {}, app = null } = {}) {
     this.#onWarn = onWarn;
     this.#app = app;
   }
 
   #script(keyCode) {
     const press = `tell application "System Events" to key code ${keyCode} using command down`;
+    // Default: send it to whatever is in front. You press the key while looking
+    // at the thing you want it to act on, so the frontmost app is the right
+    // target and no app needs naming. Cmd+N is an ordinary shortcut; treating
+    // it as anything more elaborate only added ways to fail.
     if (!this.#app) return press;
+
+    // --app opts into bringing something forward first. `activate` returns
+    // before the app is actually frontmost, so wait for it — but only as a
+    // courtesy: if it never arrives we still send the keystroke rather than
+    // silently doing nothing.
     const app = JSON.stringify(this.#app);
-    // Wait for the app to actually be frontmost rather than guessing at a
-    // delay. `activate` returns as soon as the request is made, so a fixed
-    // pause races it — and when the app was in the background the keystroke
-    // landed on whatever was in front instead, silently and with no error.
     return [
       `tell application ${app} to activate`,
       `tell application "System Events"`,
-      `  repeat 60 times`,
-      `    if name of first application process whose frontmost is true is ${app} then exit repeat`,
+      `  repeat 40 times`,
+      // Bind the comparison to a variable first: `name of ... whose frontmost
+      // is true is not "X"` parses the `is true` into the outer comparison and
+      // fails with -1700 at runtime.
+      `    set fg to name of first application process whose frontmost is true`,
+      `    if fg is ${app} then exit repeat`,
       `    delay 0.05`,
       `  end repeat`,
-      `  if name of first application process whose frontmost is true is not ${app} then error "did not come to the front" number 9001`,
       `end tell`,
       press,
     ].join("\n");
+  }
+
+  /** The AppleScript for key n, exposed so tests can compile it. */
+  scriptFor(index) {
+    return this.#script(DIGIT_KEY_CODES[index]);
   }
 
   /** Switches to the nth chat (1-based). Resolves true if the keystroke went out. */
@@ -59,10 +72,6 @@ export class Switcher {
       execFile("osascript", ["-e", this.#script(keyCode)], (error, _out, stderr) => {
         if (!error) return resolve(true);
         const detail = String(stderr || error.message);
-        if (/9001/.test(detail)) {
-          this.#onWarn(`${this.#app} did not come to the front within 3s; keystroke not sent.`);
-          return resolve(false);
-        }
         if (NOT_TRUSTED.test(detail)) {
           if (!this.#warned) {
             this.#warned = true;
