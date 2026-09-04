@@ -252,7 +252,26 @@ if (options.testSwitch !== null && options.testSwitch !== undefined) {
   process.exit(0);
 }
 
-const device = await open({ reconnect: true, reconnectDelay: 2000 });
+/**
+ * Waits for the keypad instead of failing when it is not there.
+ *
+ * As a login item this starts before the keypad has connected — and a
+ * Bluetooth keypad is simply asleep most of the time. Exiting made launchd
+ * restart it, which exited, which is a crash loop that leaves nothing running
+ * for the one moment the device does appear.
+ */
+async function waitForDevice() {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await open({ reconnect: true, reconnectDelay: 2000 });
+    } catch (error) {
+      if (attempt === 0) say(`waiting for the keypad (${error.message})`);
+      await new Promise((resolve) => setTimeout(resolve, Math.min(2000 * 2 ** attempt, 30_000)));
+    }
+  }
+}
+
+const device = await waitForDevice();
 say(`connected to ${device.info.product} over ${device.info.transport}`);
 
 const switcher = new Switcher({
@@ -341,6 +360,7 @@ device.on("key", async ({ key, pressed }) => {
 });
 
 let stopping = false;
+device.on("error", (error) => say(`transport: ${error.message}`));
 device.on("close", () => { if (!stopping) say("device dropped, reconnecting…"); });
 device.on("reconnect", async () => {
   lastLayer = null;
