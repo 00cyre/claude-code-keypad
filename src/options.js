@@ -1,0 +1,74 @@
+// Command-line parsing, kept out of the daemon so it can be tested.
+import { DEFAULTS } from "./status.js";
+
+/** CLI spellings for the four states. */
+export const STATE_FLAGS = {
+  "--working": "working",
+  "--needs-you": "stalled",
+  "--your-turn": "yourTurn",
+  "--idle": "idle",
+};
+
+export const DEFAULT_OPTIONS = {
+  keys: 6,
+  interval: 2000,
+  app: "Claude",
+  switching: true,
+  anyLayer: false,
+};
+
+/**
+ * Parses argv into daemon options plus per-state palette overrides.
+ * Throws on anything it does not recognise, so a typo in a login item is a
+ * startup failure with a message rather than a silently ignored setting.
+ */
+export function parse(argv) {
+  const options = { ...DEFAULT_OPTIONS };
+  const colors = {};
+  const rest = [];
+
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    const next = () => {
+      const v = argv[i + 1];
+      if (v === undefined) throw new Error(`${arg} needs a value`);
+      i += 1;
+      return v;
+    };
+
+    // --working #FFC400 / --working-effect breath / --working-brightness 0.5
+    const stateFlag = Object.keys(STATE_FLAGS).find((f) => arg === f || arg.startsWith(`${f}-`));
+    if (stateFlag) {
+      const state = STATE_FLAGS[stateFlag];
+      const suffix = arg.slice(stateFlag.length);
+      const entry = colors[state] ?? (colors[state] = {});
+      if (suffix === "") entry.color = next();
+      else if (suffix === "-effect") entry.effect = next();
+      else if (suffix === "-brightness") entry.brightness = Number(next());
+      else if (suffix === "-speed") entry.speed = Number(next());
+      else throw new Error(`Unknown option ${arg}`);
+      continue;
+    }
+
+    switch (arg) {
+      case "--keys": options.keys = Number(next()); break;
+      case "--interval": options.interval = Number(next()); break;
+      case "--app": options.app = next(); break;
+      case "--no-switch": options.switching = false; break;
+      case "--any-layer": options.anyLayer = true; break;
+      case "--once": options.once = true; break;
+      default:
+        if (arg.startsWith("-")) throw new Error(`Unknown option ${arg}`);
+        rest.push(arg);
+    }
+  }
+
+  if (!Number.isInteger(options.keys) || options.keys < 1 || options.keys > 20) {
+    throw new Error(`--keys must be a whole number between 1 and 20, got ${options.keys}`);
+  }
+  if (!(options.interval >= 250)) throw new Error(`--interval must be at least 250ms, got ${options.interval}`);
+  for (const state of Object.keys(colors)) {
+    if (!(state in DEFAULTS)) throw new Error(`Unknown state ${state}`);
+  }
+  return { options, colors, rest };
+}

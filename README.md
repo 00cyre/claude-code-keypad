@@ -6,10 +6,9 @@ Each key is one of your running sessions, coloured by what it is doing. Press a 
 
 | Colour | Meaning |
 | --- | --- |
-| blue | working — the assistant is mid-turn |
-| amber | **needs you** — mid-turn but gone quiet, usually a prompt waiting on an answer |
-| green | your turn — the assistant finished and is waiting for a reply |
-| white | idle — open, but nothing for an hour |
+| pulsing yellow | working — the assistant is mid-turn |
+| green | waiting on you — it has stopped and wants a reply |
+| blue | away — nothing for an hour |
 | off | no session for that key |
 
 ## Install
@@ -29,8 +28,35 @@ npx github:00cyre/claude-code-keypad status      # is it running?
 npx github:00cyre/claude-code-keypad uninstall   # stop it, remove the login item
 ```
 
-Options after `install` are passed through to the service, so
-`… install --keys 4 --no-switch` installs it that way.
+Options after `install` are baked into the login item, so that is where to set
+your defaults:
+
+```sh
+npx github:00cyre/claude-code-keypad install --working '#FF00AA' --idle-brightness 0.3
+```
+
+### Colours
+
+Each state takes a hex colour, and also `-effect`, `-brightness` and `-speed`:
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--working` | `#FFC400` pulsing | assistant is mid-turn |
+| `--needs-you` | `#00C853` | mid-turn but quiet — usually a prompt |
+| `--your-turn` | `#00C853` | finished, waiting on you |
+| `--idle` | `#2D7FF9` | nothing for an hour |
+
+`--working-effect` takes `off`, `solid`, `snake`, `rainbow`, `breath`,
+`gradient` or `shallow_breath`; `--working-brightness` and `--working-speed`
+take 0-1. The same suffixes work on every state flag.
+
+A bad colour or effect fails at startup with a message rather than being
+ignored, so a typo in a login item does not leave you guessing.
+
+**A note on blue.** These keys use separate red/green/blue emitters behind a
+diffuser rather than one mixed source, so a saturated blue reads closer to
+white than you would expect. That is fine for `--idle`, which is meant to
+recede, but pick something else if you want blue to *mean* something.
 
 To run it in the foreground instead, without installing anything:
 
@@ -44,6 +70,23 @@ prune that cache, and an agent pointing into it would work right up until it
 didn't. Logs go to `~/Library/Logs/claude-code-keypad.log`.
 
 Device I/O comes from [creator-micro-kit](https://github.com/00cyre/creator-micro-kit); this package is only the Claude Code half.
+
+## Requirements
+
+The keypad must have a layer that is **linked to the Claude desktop app** and
+maps `KV_OAI_AG*` keycodes. Only that layer is driven — other profiles are left
+completely alone, so a gaming profile does not get its lights rewritten because
+a chat went idle.
+
+```sh
+npx github:00cyre/claude-code-keypad doctor
+```
+
+tells you which of those two conditions is missing and what to change in the
+Input app. `install` runs the same check and refuses to pretend it worked.
+
+Pass `--any-layer` to drive every layer that has the keycodes, ignoring the app
+link.
 
 ## Mapping the keys
 
@@ -84,6 +127,30 @@ result.
 Sending `Cmd+N` needs Accessibility permission for whatever runs this — Terminal, iTerm, or `node` itself — in **System Settings › Privacy & Security › Accessibility**. Without it the keys still show status; they just do not switch chats, and you get one line saying so rather than silent failure.
 
 Run with `--no-switch` if you only want the lights.
+
+## Setting it up with an agent
+
+Paste this to Claude Code, or any agent with shell access, and it will do the
+whole thing:
+
+```
+Set up my Work Louder Creator Micro 2 to show Claude Code session status on its keys.
+
+1. Run: npx github:00cyre/claude-code-keypad doctor
+2. If it reports a problem, tell me exactly what to click in the Work Louder
+   Input app to fix it. Two things are needed: a layer linked to the Claude
+   desktop app, and that layer's keys mapped to KV_OAI_AG00..KV_OAI_AG05.
+   Wait for me to do it, then run doctor again.
+3. Once doctor passes, run: npx github:00cyre/claude-code-keypad install
+4. Confirm with: npx github:00cyre/claude-code-keypad status
+
+Before changing anything on the device, back up my keymap with
+`npx creator-micro-kit pull keymap.json ./keymap.backup.json` and tell me the
+checksum. Quit the Input app before any write to the device — two writers
+corrupt each other. Note that KV_OAI_AG keycodes send no keystroke of their
+own, so any macros on those keys stop working from the device; the daemon
+sends Cmd+N instead. Tell me which macros that affects before you do it.
+```
 
 ## Where the status comes from
 
