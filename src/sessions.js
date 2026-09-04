@@ -186,9 +186,11 @@ export function sessionStatuses({ now = Date.now(), limit = SCAN_LIMIT } = {}) {
     const tail = tailRecords(entry.file);
     const derived = stateFromRecords(tail, { now, fallbackAt: entry.mtimeMs, running });
     const pidRecord = live.get(entry.sessionId);
+    const title = titleFor(entry.sessionId, entry.file, tail);
     const value = {
       sessionId: entry.sessionId,
-      title: titleFor(entry.sessionId, entry.file, tail) ?? pidRecord?.name ?? entry.project.split("-").filter(Boolean).at(-1),
+      title: title ?? pidRecord?.name ?? entry.project.split("-").filter(Boolean).at(-1),
+      titled: title !== null,
       name: pidRecord?.name ?? entry.project.split("-").filter(Boolean).at(-1),
       cwd: pidRecord?.cwd ?? null,
       pid: pidRecord?.pid ?? null,
@@ -200,13 +202,31 @@ export function sessionStatuses({ now = Date.now(), limit = SCAN_LIMIT } = {}) {
     result.push(value);
   }
   result.sort((a, b) => (b.since ?? 0) - (a.since ?? 0));
+  const collapsed = collapseByTitle(result);
 
-  if (result.length) saveSnapshot(result);
+  if (collapsed.length) saveSnapshot(collapsed);
   else {
     const snapshot = loadSnapshot();
     if (snapshot.length) return snapshot;
   }
-  return result;
+  return collapsed;
+}
+
+/**
+ * One key per title. A re-opened or forked chat carries the same title as the
+ * one it came from, and two keys reading the same name is noise; the most
+ * recently active one is the one you would reach for. Untitled sessions fall
+ * back to a directory name, which is not identity, so they are never merged.
+ */
+export function collapseByTitle(sessions) {
+  const seen = new Set();
+  return sessions.filter((session) => {
+    if (!session.titled) return true;
+    const key = session.title.trim().toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 /** Keeps the last good read so a transient failure does not blank the board. */

@@ -149,3 +149,15 @@ test("bookkeeping records after the last turn do not change its state", () => {
   ];
   assert.equal(stateFromRecords(records, { now: NOW }).state, State.yourTurn);
 });
+
+test("chats sharing a title collapse to the most recently active one", async () => {
+  const { collapseByTitle } = await import("../src/sessions.js");
+  const rows = [
+    { sessionId: "a", title: "Cancel Adobe", titled: true, since: 300 },
+    { sessionId: "b", title: "cancel adobe ", titled: true, since: 200 },   // same title, older
+    { sessionId: "c", title: "Other", titled: true, since: 100 },
+    { sessionId: "d", title: "ssd", titled: false, since: 50 },              // fallback names are
+    { sessionId: "e", title: "ssd", titled: false, since: 40 },              // not identity
+  ];
+  assert.deepEqual(collapseByTitle(rows).map((r) => r.sessionId), ["a", "c", "d", "e"]);
+});
