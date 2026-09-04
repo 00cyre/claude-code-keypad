@@ -100,10 +100,14 @@ export async function install(args = []) {
   await run("npm", ["install", "--silent", "--prefix", HOME, SPEC], { maxBuffer: 32 * 1024 * 1024 });
   if (!fs.existsSync(INSTALLED_CLI)) throw new Error(`install did not produce ${INSTALLED_CLI}`);
 
+  // npm does not record gitHead for a GitHub install, so ask GitHub what HEAD
+  // is right now — that is what npm just fetched, give or take the seconds
+  // between the two calls. Without this, status could never say "up to date".
   let commit = null;
   try {
     commit = JSON.parse(fs.readFileSync(path.join(HOME, "node_modules", "claude-code-keypad", "package.json"), "utf8")).gitHead ?? null;
   } catch { /* not recorded by npm */ }
+  if (!commit) commit = await latestCommit();
   fs.writeFileSync(RECORD, JSON.stringify({ at: new Date().toISOString(), commit, args }, null, 2) + "\n");
 
   fs.mkdirSync(path.dirname(PLIST), { recursive: true });
