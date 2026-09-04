@@ -68,6 +68,23 @@ async function launchctl(args) {
   }
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** True when launchd currently knows about the job. */
+async function isLoaded(uid) {
+  return (await launchctl(["print", `gui/${uid}/${LABEL}`])).ok;
+}
+
+/** Waits for the job to reach `wanted`, since bootout and bootstrap are async. */
+async function settle(uid, wanted, timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isLoaded(uid) === wanted) return true;
+    await sleep(250);
+  }
+  return await isLoaded(uid) === wanted;
+}
+
 /** Installs a stable copy and loads it as a login item. */
 export async function install(args = []) {
   const uid = process.getuid();
@@ -89,17 +106,27 @@ export async function install(args = []) {
   console.log(`wrote ${PLIST}`);
   console.log(`  node: ${nodePath}${nodePath === process.execPath ? "" : "  (upgrade-stable symlink)"}`);
 
-  // Replace any previous copy; bootout is expected to fail when none is loaded.
+  // Replace any previous copy. bootout returns before launchd has finished
+  // tearing the job down, and a bootstrap issued into that window gets undone
+  // by the teardown completing — it reports success and then is simply not
+  // there. So wait for the job to actually be gone, then wait for it to
+  // actually be up, rather than trusting either exit code.
   await launchctl(["bootout", `gui/${uid}/${LABEL}`]);
+  if (!await settle(uid, false)) throw new Error("the previous copy would not unload");
+
   let loaded = await launchctl(["bootstrap", `gui/${uid}`, PLIST]);
   if (!loaded.ok) loaded = await launchctl(["load", "-w", PLIST]);   // older macOS
-  if (!loaded.ok) throw new Error(`launchctl refused to load it: ${loaded.out.trim()}`);
+  if (!await settle(uid, true)) {
+    throw new Error(`launchctl did not keep it loaded: ${loaded.out.trim() || "no error reported"}`);
+  }
+  const printed = await launchctl(["print", `gui/${uid}/${LABEL}`]);
+  const pid = printed.out.match(/pid = (\d+)/)?.[1];
 
-  console.log(`\n✓ installed and running, and it will start again at login.`);
+  console.log(`\n✓ installed and running${pid ? ` (pid ${pid})` : ""}, and it will start again at login.`);
   console.log(`  logs      : ${LOG}`);
   console.log(`  stop      : npx ${SPEC} uninstall`);
   console.log(`\nIf pressing a key does not switch chats, grant Accessibility to`);
-  console.log(`node (${process.execPath}) in System Settings › Privacy & Security.`);
+  console.log(`node (${nodePath}) in System Settings › Privacy & Security.`);
 }
 
 /** Unloads the login item. Leaves the installed copy in place. */
@@ -107,6 +134,7 @@ export async function uninstall() {
   const uid = process.getuid();
   const stopped = await launchctl(["bootout", `gui/${uid}/${LABEL}`]);
   if (!stopped.ok) await launchctl(["unload", "-w", PLIST]);
+  await settle(uid, false);
   if (fs.existsSync(PLIST)) { fs.rmSync(PLIST); console.log(`removed ${PLIST}`); }
   console.log("✓ stopped, and it will no longer start at login.");
   console.log(`  the copy in ${HOME} is left alone; delete it if you want it gone.`);
