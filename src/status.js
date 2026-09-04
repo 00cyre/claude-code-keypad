@@ -17,7 +17,11 @@ export const Look = {
   [State.working]:  { color: "#2D7FF9", brightness: 1,    effect: Effect.breath, speed: 0.55, label: "working"   },
   [State.stalled]:  { color: "#FF8C00", brightness: 1,    effect: Effect.solid,  speed: 0,    label: "needs you" },
   [State.yourTurn]: { color: "#00C853", brightness: 1,    effect: Effect.solid,  speed: 0,    label: "your turn" },
-  [State.idle]:     { color: "#3A3A3A", brightness: 0.25, effect: Effect.solid,  speed: 0,    label: "idle"      },
+  // White rather than a dim grey: a session you have not touched in an hour is
+  // still open and still yours, and at 25% grey it was indistinguishable from
+  // a key with nothing behind it. White reads as "present, nothing happening",
+  // which is the actual state, and leaves the saturated colours to mean work.
+  [State.idle]:     { color: "#FFFFFF", brightness: 0.7,  effect: Effect.solid,  speed: 0,    label: "idle"      },
 };
 
 /** Shown on a key with no session behind it. */

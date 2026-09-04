@@ -4,8 +4,11 @@ import { open, Effect } from "creator-micro-kit";
 import { sessionStatuses } from "../src/sessions.js";
 import { slots, mostUrgent, threadFor, zoneFor, Look, Empty } from "../src/status.js";
 import { Switcher } from "../src/switcher.js";
+import * as service from "../src/service.js";
 
 const argv = process.argv.slice(2);
+// Subcommands run and exit; everything else falls through to the daemon.
+const command = argv[0] && !argv[0].startsWith("-") ? argv.shift() : null;
 const value = (name, fallback) => {
   const i = argv.indexOf(name);
   return i === -1 ? fallback : argv[i + 1];
@@ -18,10 +21,24 @@ const options = {
   once: argv.includes("--once"),
 };
 
+if (command === "install")   { await service.install(argv); process.exit(0); }
+if (command === "uninstall") { await service.uninstall();     process.exit(0); }
+if (command === "status")    { await service.status();        process.exit(0); }
+if (command && command !== "run") {
+  console.error(`unknown command: ${command}  (try install, uninstall, status, run)`);
+  process.exit(1);
+}
+
 if (argv.includes("--help") || argv.includes("-h")) {
   console.log(`claude-code-keypad — Claude Code session status on your keypad
 
-Usage: claude-code-keypad [options]
+Usage:
+  claude-code-keypad [options]        run in the foreground
+  claude-code-keypad install [opts]   install as a login item and start it
+  claude-code-keypad uninstall        stop it and remove the login item
+  claude-code-keypad status           is it installed and running?
+
+Options:
 
   --keys <n>          how many keys to drive (default 6)
   --interval <ms>     repaint interval (default 2000)

@@ -9,13 +9,39 @@ Each key is one of your running sessions, coloured by what it is doing. Press a 
 | blue | working — the assistant is mid-turn |
 | amber | **needs you** — mid-turn but gone quiet, usually a prompt waiting on an answer |
 | green | your turn — the assistant finished and is waiting for a reply |
-| dim | idle — nothing recent |
+| white | idle — open, but nothing for an hour |
 | off | no session for that key |
 
+## Install
+
+One command. It fetches the package, compiles the native HID bridge, installs a
+login item, and starts it:
+
 ```sh
-npm install
-npm start
+npx github:00cyre/claude-code-keypad install
 ```
+
+That is the whole setup — it runs from now on, comes back at login, and restarts
+if it crashes.
+
+```sh
+npx github:00cyre/claude-code-keypad status      # is it running?
+npx github:00cyre/claude-code-keypad uninstall   # stop it, remove the login item
+```
+
+Options after `install` are passed through to the service, so
+`… install --keys 4 --no-switch` installs it that way.
+
+To run it in the foreground instead, without installing anything:
+
+```sh
+npx github:00cyre/claude-code-keypad
+```
+
+`install` deliberately puts its own copy in `~/.claude-code-keypad` rather than
+pointing the login item at wherever `npx` happened to unpack it — npm is free to
+prune that cache, and an agent pointing into it would work right up until it
+didn't. Logs go to `~/Library/Logs/claude-code-keypad.log`.
 
 Device I/O comes from [creator-micro-kit](https://github.com/00cyre/creator-micro-kit); this package is only the Claude Code half.
 

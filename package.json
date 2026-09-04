@@ -5,18 +5,38 @@
   "type": "module",
   "license": "MIT",
   "main": "src/index.js",
-  "exports": { ".": "./src/index.js" },
-  "bin": { "claude-code-keypad": "bin/cli.js" },
-  "files": ["src", "bin", "README.md", "LICENSE"],
-  "engines": { "node": ">=20" },
-  "os": ["darwin"],
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "bin": {
+    "claude-code-keypad": "bin/cli.js"
+  },
+  "files": [
+    "src",
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "os": [
+    "darwin"
+  ],
   "dependencies": {
     "creator-micro-kit": "github:00cyre/creator-micro-kit#make-it-work"
   },
   "scripts": {
     "start": "node bin/cli.js",
-    "check": "node --check src/sessions.js && node --check src/status.js && node --check src/switcher.js && node --check bin/cli.js",
+    "check": "node --check src/sessions.js && node --check src/status.js && node --check src/switcher.js && node --check src/service.js && node --check bin/cli.js",
     "test": "node --test test/*.test.js"
   },
-  "keywords": ["claude-code", "work-louder", "creator-micro", "macropad", "status", "led"]
+  "keywords": [
+    "claude-code",
+    "work-louder",
+    "creator-micro",
+    "macropad",
+    "status",
+    "led"
+  ]
 }
