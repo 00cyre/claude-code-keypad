@@ -296,7 +296,28 @@ if (options.switching) {
   }
 }
 
-let board = survey(JSON.parse((await device.readFile("keymap.json")).toString("utf8")));
+/**
+ * Reads the keymap, retrying and then giving up gracefully.
+ *
+ * It is an 8KB read over a link that may be Bluetooth, and losing it is not a
+ * reason to take the process down — the keymap only decides which layer we are
+ * *for*, which is advisory. Painting works without it.
+ */
+async function readBoard(attempts = 3) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return survey(JSON.parse((await device.readFile("keymap.json")).toString("utf8")));
+    } catch (error) {
+      if (attempt === attempts) {
+        say(`could not read the keymap (${error.message}) — painting anyway`);
+        return { apps: [], layers: new Map(), linked: [], drivable: [] };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500 * attempt));
+    }
+  }
+}
+
+let board = await readBoard();
 
 /**
  * Which layer this is for. A pinned --layer wins; otherwise the layer linked
@@ -366,7 +387,7 @@ device.on("reconnect", async () => {
   lastLayer = null;
   // The keymap can change while we are away — the Input app rewrites it.
   try {
-    board = survey(JSON.parse((await device.readFile("keymap.json")).toString("utf8")));
+    board = await readBoard(2);
     drivable = drivableKeys();
   } catch { /* keep the previous survey */ }
   say("reconnected");
