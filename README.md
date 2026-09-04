@@ -34,6 +34,25 @@ So one vendor keycode somewhere on a layer buys nothing, and there is no per-lay
 
 On a layer with no `KV_OAI_AG*` keys, per-key colour is impossible, so it falls back to `lights.preview` — which works on any layer — and shows the single most urgent state across the whole board. That is a downgrade, not a substitute, and it says so on the way past.
 
+### Going back
+
+The macro *definitions* are untouched by remapping a key — they stay in the
+keymap, just unbound. To undo this, point those six keys back at the macros in
+the Input app; nothing needs to be recreated.
+
+Back the keymap up before changing it, either from the Input app or with the
+kit's CLI, which reads it straight off the device:
+
+```sh
+npx creator-micro-kit pull keymap.json ./keymap.backup.json
+npx creator-micro-kit push keymap.json ./keymap.backup.json   # to restore
+```
+
+`push` verifies the device's own SHA-1 after writing and fails loudly on a
+mismatch. Quit the Input app first — the device takes one byte stream and two
+writers corrupt each other. Reopening Input afterwards does not overwrite the
+result.
+
 ## Accessibility permission
 
 Sending `Cmd+N` needs Accessibility permission for whatever runs this — Terminal, iTerm, or `node` itself — in **System Settings › Privacy & Security › Accessibility**. Without it the keys still show status; they just do not switch chats, and you get one line saying so rather than silent failure.
