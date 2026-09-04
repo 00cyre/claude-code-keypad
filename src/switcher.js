@@ -33,9 +33,22 @@ export class Switcher {
   #script(keyCode) {
     const press = `tell application "System Events" to key code ${keyCode} using command down`;
     if (!this.#app) return press;
-    // Without this the keystroke lands on whatever happens to be frontmost,
-    // which is rarely the app you meant when you reached for the keypad.
-    return `tell application ${JSON.stringify(this.#app)} to activate\ndelay 0.12\n${press}`;
+    const app = JSON.stringify(this.#app);
+    // Wait for the app to actually be frontmost rather than guessing at a
+    // delay. `activate` returns as soon as the request is made, so a fixed
+    // pause races it — and when the app was in the background the keystroke
+    // landed on whatever was in front instead, silently and with no error.
+    return [
+      `tell application ${app} to activate`,
+      `tell application "System Events"`,
+      `  repeat 60 times`,
+      `    if name of first application process whose frontmost is true is ${app} then exit repeat`,
+      `    delay 0.05`,
+      `  end repeat`,
+      `  if name of first application process whose frontmost is true is not ${app} then error "did not come to the front" number 9001`,
+      `end tell`,
+      press,
+    ].join("\n");
   }
 
   /** Switches to the nth chat (1-based). Resolves true if the keystroke went out. */
@@ -46,6 +59,10 @@ export class Switcher {
       execFile("osascript", ["-e", this.#script(keyCode)], (error, _out, stderr) => {
         if (!error) return resolve(true);
         const detail = String(stderr || error.message);
+        if (/9001/.test(detail)) {
+          this.#onWarn(`${this.#app} did not come to the front within 3s; keystroke not sent.`);
+          return resolve(false);
+        }
         if (NOT_TRUSTED.test(detail)) {
           if (!this.#warned) {
             this.#warned = true;
