@@ -469,7 +469,8 @@ async function tick() {
     console.log(`\n${stamp()} ── keys ──`);
     for (const { id, session, look } of row) {
       const age = session?.quietFor === undefined ? "" : `${(session.quietFor / 60000).toFixed(0)}m`;
-      console.log(`  ${id + 1}  ${look.color}  ${look.label.padEnd(9)} ${(session?.name ?? "").padEnd(30)} ${age.padStart(5)} ${id === selected ? "◀ here" : ""}`);
+      const title = String(session?.title ?? session?.name ?? "").slice(0, 34);
+      console.log(`  ${id + 1}  ${look.color}  ${look.label.padEnd(9)} ${session?.running ? "●" : "○"} ${title.padEnd(35)} ${age.padStart(5)} ${id === selected ? "◀ here" : ""}`);
     }
     console.log(`     ring + other keys: ${focus.label} ${focus.color}`);
   }
@@ -482,7 +483,7 @@ device.on("key", async ({ key, pressed }) => {
   if (slot >= options.keys) return;
   const session = sessionStatuses()[slot];
   selected = slot;
-  say(`key ${slot + 1} → ${session ? `${session.name} (${session.state})` : "no session"}`);
+  say(`key ${slot + 1} → ${session ? `${session.title ?? session.name} (${session.state})` : "no session"}`);
   tick().catch(() => {});
   if (options.switching) await switcher.switchTo(slot + 1);
 });

@@ -130,3 +130,22 @@ test("every documented flag is accepted by the parser", async () => {
     );
   }
 });
+
+test("a session with no live process cannot be working or stalled", () => {
+  // Its transcript ends mid-turn, but nothing is behind it any more, so it is
+  // not generating and not sitting on a prompt. It is simply a chat.
+  assert.equal(stateFromRecords([assistant("tool_use", 1000)], { now: NOW, running: false }).state, State.idle);
+  // A finished turn is still yours to answer, process or not.
+  assert.equal(stateFromRecords([assistant("end_turn", 1000)], { now: NOW, running: false }).state, State.yourTurn);
+});
+
+test("bookkeeping records after the last turn do not change its state", () => {
+  // Titles, attachments and queue notes are appended after turns; the state
+  // belongs to the last assistant or user record, not to whatever came last.
+  const records = [
+    assistant("end_turn", 5000),
+    { type: "ai-title", aiTitle: "Something", timestamp: at(1000) },
+    { type: "attachment", timestamp: at(500) },
+  ];
+  assert.equal(stateFromRecords(records, { now: NOW }).state, State.yourTurn);
+});

@@ -181,19 +181,35 @@ Run with `--no-switch` if you only want the lights.
 
 ## Where the status comes from
 
-Two files on disk, so this works as a plain script rather than from inside a session:
+The transcript. Every session writes one to `~/.claude/projects/<cwd>/<id>.jsonl`,
+and it stays after the session ends — so the keys show the most recently active
+chats whether or not a process is still behind them. A chat you closed an hour
+ago is still a chat, still in the sidebar, still what `Cmd+N` reaches. (An
+earlier version keyed off live processes instead, and keys went dark one by one
+as chats ended, which reads as a fault.)
 
-- `~/.claude/sessions/<pid>.json` — one per live session; the process is checked with signal 0
-- `~/.claude/projects/<cwd>/<id>.jsonl` — that session's transcript
+Two things are read from each transcript:
 
-State comes from the last non-sidechain record of the transcript. `stop_reason` is the signal: `end_turn` means the assistant stopped and it is your move; anything else means mid-turn. Only the tail is read, since these grow to megabytes.
+- **the title**, from its `custom-title` or `ai-title` records — the same name
+  the sidebar shows, a custom one winning
+- **the state**, from the last assistant or user record. `stop_reason` is the
+  signal: `end_turn` means the assistant stopped and it is your move; anything
+  else means mid-turn
 
-Two thresholds turn that into something readable at a glance:
+Whether a live process backs the session comes from `~/.claude/sessions/<pid>.json`,
+checked with signal 0. Without one nothing can be working or waiting on a
+prompt, whatever the transcript's last line says, so those sessions read as
+idle or your-turn only.
 
-- a mid-turn session quiet for **45s** becomes `needs you` — on disk, a session generating and a session sitting on a permission prompt are identical, and the silence is the only clue
-- anything quiet for over **an hour** becomes `idle`, so a session you interrupted yesterday is not still demanding attention
+Two thresholds make it readable at a glance: a mid-turn session quiet for
+**45s** becomes `needs you` (on disk, generating and sitting on a permission
+prompt are indistinguishable — the silence is the only clue), and anything
+quiet for over **an hour** becomes `idle`.
 
-Subagent records are skipped: they interleave into the same transcript, and a running subagent already means the session is working.
+Only the tail of each file is read, since they grow to megabytes, and unchanged
+files are not re-read. The last good result is snapshotted to
+`~/.claude-code-keypad/state.json` and used if the transcripts cannot be read at
+all, so a briefly unavailable directory does not blank the board.
 
 ## Options
 

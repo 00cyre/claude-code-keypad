@@ -1,14 +1,19 @@
-// Reads the state of the Claude Code sessions running on this machine.
+// Reads the state of your Claude Code sessions from disk.
 //
-// Two sources, both on disk, so this works from a plain script rather than
-// from inside a session:
+// The durable record is the transcript: ~/.claude/projects/<cwd>/<id>.jsonl,
+// one per session, kept after the session ends. That is what the keys show —
+// the most recently active chats, running or not — because a chat you closed
+// an hour ago is still a chat, still in the sidebar, still what Cmd+N reaches.
+// Keying off live processes instead (~/.claude/sessions/<pid>.json) made keys
+// go dark one by one as chats ended, which read as a fault.
 //
-//   ~/.claude/sessions/<pid>.json          one per live session: pid, sessionId, cwd
-//   ~/.claude/projects/<cwd>/<id>.jsonl    that session's transcript
+// Liveness still matters for *what a session is doing*: a process that is
+// gone cannot be working or waiting on a prompt. So the pid files enrich the
+// transcript list rather than filter it.
 //
-// A session's state comes from the last non-sidechain record of its
-// transcript. `stop_reason` is the signal: "end_turn" means the assistant
-// finished and it is your move; anything else means it is mid-turn.
+// A snapshot of the last good read is kept in ~/.claude-code-keypad/state.json
+// and used if the transcripts cannot be read at all, so the board never blanks
+// because a directory was briefly unavailable.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -16,11 +21,14 @@ import path from "node:path";
 const CLAUDE_HOME = path.join(os.homedir(), ".claude");
 const SESSIONS = path.join(CLAUDE_HOME, "sessions");
 const PROJECTS = path.join(CLAUDE_HOME, "projects");
+export const STATE_FILE = path.join(os.homedir(), ".claude-code-keypad", "state.json");
 
 /** How long a mid-turn session may go quiet before we call it stalled. */
 export const STALL_MS = 45_000;
-/** How long an idle session stays "recent" before it dims. */
+/** How long a session stays "recent" before it dims. */
 export const STALE_MS = 60 * 60 * 1000;
+/** How many transcripts to examine each pass. Only the newest matter. */
+export const SCAN_LIMIT = 16;
 
 export const State = {
   working: "working",
@@ -31,39 +39,46 @@ export const State = {
 
 function isAlive(pid) {
   try {
-    // Signal 0 tests for the process without touching it.
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    // EPERM means it exists but belongs to someone else.
     return error.code === "EPERM";
   }
 }
 
-/** Every session with a live process, newest first. */
+/** sessionId → pid record, for every session with a live process. */
 export function liveSessions() {
   let entries;
-  try { entries = fs.readdirSync(SESSIONS); } catch { return []; }
-  const sessions = [];
+  try { entries = fs.readdirSync(SESSIONS); } catch { return new Map(); }
+  const live = new Map();
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
     let record;
     try { record = JSON.parse(fs.readFileSync(path.join(SESSIONS, entry), "utf8")); } catch { continue; }
-    if (!record.pid || !record.sessionId || !isAlive(record.pid)) continue;
-    sessions.push(record);
+    if (record.pid && record.sessionId && isAlive(record.pid)) live.set(record.sessionId, record);
   }
-  return sessions;
+  return live;
 }
 
-/** Locates a session's transcript, which lives under a directory named for its cwd. */
-function transcriptPath(sessionId) {
+/** Every session transcript, newest first. Subagent transcripts are skipped. */
+export function transcripts() {
   let projects;
-  try { projects = fs.readdirSync(PROJECTS); } catch { return null; }
+  try { projects = fs.readdirSync(PROJECTS); } catch { return []; }
+  const found = [];
   for (const project of projects) {
-    const candidate = path.join(PROJECTS, project, `${sessionId}.jsonl`);
-    if (fs.existsSync(candidate)) return candidate;
+    const dir = path.join(PROJECTS, project);
+    let files;
+    try { files = fs.readdirSync(dir); } catch { continue; }
+    for (const file of files) {
+      if (!file.endsWith(".jsonl") || file.startsWith("agent-")) continue;
+      const full = path.join(dir, file);
+      let stat;
+      try { stat = fs.statSync(full); } catch { continue; }
+      if (stat.size === 0) continue;
+      found.push({ sessionId: file.slice(0, -".jsonl".length), file: full, project, mtimeMs: stat.mtimeMs, size: stat.size });
+    }
   }
-  return null;
+  return found.sort((a, b) => b.mtimeMs - a.mtimeMs);
 }
 
 /**
@@ -78,9 +93,7 @@ function tailRecords(file, bytes = 256 * 1024) {
     const length = Math.min(bytes, size);
     const buffer = Buffer.alloc(length);
     fs.readSync(handle, buffer, 0, length, size - length);
-    const text = buffer.toString("utf8");
-    // A partial first line is unavoidable when seeking into the middle.
-    const lines = text.split("\n").slice(size > length ? 1 : 0);
+    const lines = buffer.toString("utf8").split("\n").slice(size > length ? 1 : 0);
     const records = [];
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -92,19 +105,53 @@ function tailRecords(file, bytes = 256 * 1024) {
   }
 }
 
+const titleOf = (record) => record.customTitle ?? record.aiTitle ?? null;
+
+/** The last title record in a list, custom beating ai when both are present. */
+function lastTitle(records) {
+  let ai = null;
+  let custom = null;
+  for (const record of records) {
+    if (record.type === "custom-title" && record.customTitle) custom = record.customTitle;
+    else if (record.type === "ai-title" && record.aiTitle) ai = record.aiTitle;
+  }
+  return custom ?? ai;
+}
+
+// Titles are written near the start of a transcript and rarely change, so
+// once found for a session they are kept. The tail is tried first because it
+// is already in hand; a full scan happens at most once per session.
+const titleCache = new Map();
+function titleFor(sessionId, file, tail) {
+  const fromTail = lastTitle(tail);
+  if (fromTail) { titleCache.set(sessionId, fromTail); return fromTail; }
+  if (titleCache.has(sessionId)) return titleCache.get(sessionId);
+  let title = null;
+  try {
+    const records = [];
+    for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+      if (!line.includes('-title"')) continue;
+      try { records.push(JSON.parse(line)); } catch { /* skip */ }
+    }
+    title = lastTitle(records);
+  } catch { /* unreadable */ }
+  titleCache.set(sessionId, title);
+  return title;
+}
+
 /**
  * Derives a session's state from its transcript tail.
  *
  * `end_turn` is unambiguous: the assistant stopped and is waiting for you.
- * Mid-turn is ambiguous — a session generating and a session sitting on a
- * permission prompt look identical on disk — so a mid-turn session that has
- * not written anything for STALL_MS is reported as `stalled`, which in
- * practice is usually a prompt waiting for an answer.
+ * Mid-turn is ambiguous — a session generating and one sitting on a permission
+ * prompt look identical on disk — so a mid-turn session quiet for STALL_MS is
+ * `stalled`, which in practice is usually a prompt waiting for an answer.
+ *
+ * `running` is whether a live process backs the session. Without one nothing
+ * can be working or waiting on a prompt, whatever the transcript's last line.
  */
-export function stateFromRecords(records, { now = Date.now(), fallbackAt = null } = {}) {
-  // Subagent turns interleave into the same file; they are not the session's
-  // own state, and a running subagent means the session is working anyway.
-  const own = records.filter((record) => record.isSidechain !== true);
+export function stateFromRecords(records, { now = Date.now(), fallbackAt = null, running = true } = {}) {
+  const own = records.filter((record) => record.isSidechain !== true && (record.type === "assistant" || record.type === "user"));
   const last = own.at(-1) ?? records.at(-1);
   if (!last) return { state: State.idle, since: null };
 
@@ -115,39 +162,65 @@ export function stateFromRecords(records, { now = Date.now(), fallbackAt = null 
   if (last.type === "assistant" && last.message?.stop_reason === "end_turn") {
     return { state: quietFor > STALE_MS ? State.idle : State.yourTurn, since: at, quietFor };
   }
-  // Anything else is mid-turn: a tool_use awaiting its result, a tool result
-  // just written, or a user message the assistant has not answered yet. Past
-  // STALE_MS treat it as idle rather than stalled — a session interrupted
-  // yesterday is not something to light up as needing attention.
+  if (!running) return { state: State.idle, since: at, quietFor };
   let state = State.working;
   if (quietFor > STALE_MS) state = State.idle;
   else if (quietFor > STALL_MS) state = State.stalled;
   return { state, since: at, quietFor };
 }
 
-/** Reads a session's transcript and derives its state. */
-export function sessionState(sessionId, { now = Date.now() } = {}) {
-  const file = transcriptPath(sessionId);
-  if (!file) return { state: State.idle, since: null, file: null };
-  const derived = stateFromRecords(tailRecords(file), {
-    now,
-    fallbackAt: fs.statSync(file).mtimeMs,
-  });
-  return { ...derived, file };
+// Per-file cache keyed on (mtime, size): an unchanged transcript yields the
+// same answer, and most of them are unchanged on any given pass.
+const readCache = new Map();
+
+/** Recent sessions with their state, most recently active first. */
+export function sessionStatuses({ now = Date.now(), limit = SCAN_LIMIT } = {}) {
+  const live = liveSessions();
+  const result = [];
+  for (const entry of transcripts().slice(0, limit)) {
+    const running = live.has(entry.sessionId);
+    const key = `${entry.mtimeMs}:${entry.size}:${running}`;
+    const cached = readCache.get(entry.file);
+    if (cached?.key === key) { result.push({ ...cached.value, quietFor: now - (cached.value.since ?? now) }); continue; }
+
+    const tail = tailRecords(entry.file);
+    const derived = stateFromRecords(tail, { now, fallbackAt: entry.mtimeMs, running });
+    const pidRecord = live.get(entry.sessionId);
+    const value = {
+      sessionId: entry.sessionId,
+      title: titleFor(entry.sessionId, entry.file, tail) ?? pidRecord?.name ?? entry.project.split("-").filter(Boolean).at(-1),
+      name: pidRecord?.name ?? entry.project.split("-").filter(Boolean).at(-1),
+      cwd: pidRecord?.cwd ?? null,
+      pid: pidRecord?.pid ?? null,
+      running,
+      file: entry.file,
+      ...derived,
+    };
+    readCache.set(entry.file, { key, value });
+    result.push(value);
+  }
+  result.sort((a, b) => (b.since ?? 0) - (a.since ?? 0));
+
+  if (result.length) saveSnapshot(result);
+  else {
+    const snapshot = loadSnapshot();
+    if (snapshot.length) return snapshot;
+  }
+  return result;
 }
 
-/** Live sessions with their state, most recently active first. */
-export function sessionStatuses({ now = Date.now() } = {}) {
-  return liveSessions()
-    .map((session) => {
-      const status = sessionState(session.sessionId, { now });
-      return {
-        sessionId: session.sessionId,
-        pid: session.pid,
-        cwd: session.cwd,
-        name: session.name ?? path.basename(session.cwd ?? ""),
-        ...status,
-      };
-    })
-    .sort((a, b) => (b.since ?? 0) - (a.since ?? 0));
+/** Keeps the last good read so a transient failure does not blank the board. */
+function saveSnapshot(sessions) {
+  try {
+    fs.mkdirSync(path.dirname(STATE_FILE), { recursive: true });
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ at: Date.now(), sessions }, null, 1));
+  } catch { /* best effort */ }
+}
+
+export function loadSnapshot() {
+  try {
+    return JSON.parse(fs.readFileSync(STATE_FILE, "utf8")).sessions ?? [];
+  } catch {
+    return [];
+  }
 }
