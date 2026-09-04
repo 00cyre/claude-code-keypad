@@ -7,6 +7,7 @@ import { Switcher } from "../src/switcher.js";
 import { survey, explain } from "../src/layers.js";
 import { parse, STATE_FLAGS } from "../src/options.js";
 import * as service from "../src/service.js";
+import * as permissions from "../src/permissions.js";
 
 const raw = process.argv.slice(2);
 const command = raw[0] && !raw[0].startsWith("-") ? raw.shift() : null;
@@ -23,6 +24,7 @@ Usage:
   claude-code-keypad uninstall        stop it and remove the login item
   claude-code-keypad status           is it installed and running?
   claude-code-keypad doctor           check the keypad is set up correctly
+  claude-code-keypad permissions      check macOS grants (--fix opens Settings)
 
 Options:
   --keys <n>          how many keys to drive (default 6)
@@ -81,6 +83,16 @@ async function inspect() {
   }
 }
 
+if (command === "permissions") {
+  const { text, ok } = await permissions.report({
+    app: options.app === "none" ? "System Events" : options.app,
+    nodePath: service.stableNodePath(),
+    fix: raw.includes("--fix"),
+  });
+  console.log(text);
+  process.exit(ok ? 0 : 1);
+}
+
 if (command === "doctor") {
   try {
     const { survey: s, info } = await inspect();
@@ -89,7 +101,13 @@ if (command === "doctor") {
     console.log(`linked layer: ${s.linked.map(([k, l]) => `${k} ${l.name}`).join(", ") || "none"}`);
     console.log(`drivable    : ${s.drivable.map(([k, l]) => `${k} ${l.name} (${l.agKeys} keys)`).join(", ") || "none"}`);
     const problem = explain(s);
-    if (problem) { console.log(`\n${problem}`); process.exit(1); }
+    if (problem) console.log(`\n${problem}`);
+    const grants = await permissions.report({
+      app: options.app === "none" ? "System Events" : options.app,
+      nodePath: service.stableNodePath(),
+    });
+    console.log(`\n${grants.text}`);
+    if (problem || !grants.ok) process.exit(1);
     console.log("\n✓ ready");
   } catch (error) {
     console.error(`could not reach the keypad: ${error.message}`);
@@ -144,6 +162,25 @@ if (command === "install") {
 
   await service.install(args);
 
+  const grants = await permissions.report({
+    app: options.app === "none" ? "System Events" : options.app,
+    nodePath: service.stableNodePath(),
+  });
+  if (!grants.ok) {
+    console.error(`\n${"─".repeat(68)}`);
+    console.error("Chat switching will not work until macOS is told to allow it:\n");
+    console.error(grants.text);
+    console.error("\nRun this once you have done it:  claude-code-keypad permissions");
+    console.error("─".repeat(68));
+    if (process.stdin.isTTY) {
+      await permissions.requestAccessibility();
+      await permissions.openPane(grants.accessibility ? permissions.AUTOMATION_PANE : permissions.ACCESSIBILITY_PANE);
+      console.error("\n(opened the System Settings pane for you)");
+    }
+  } else {
+    console.log("✓ macOS permissions are in place — keys will switch chats.");
+  }
+
   if (board) {
     const pinned = options.layer || args[args.indexOf("--layer") + 1];
     if (board.drivable.length || pinned) {
@@ -182,6 +219,19 @@ const switcher = new Switcher({
   onWarn: (message) => say(message),
   app: options.app === "none" ? null : options.app,
 });
+
+if (options.switching) {
+  const grants = await permissions.report({
+    app: options.app === "none" ? "System Events" : options.app,
+    nodePath: process.execPath,
+  });
+  say(`permissions: accessibility ${grants.accessibility ? "ok" : "MISSING"}, automation ${grants.automation ? "ok" : "MISSING"}`);
+  if (!grants.ok) {
+    console.log(`\n${grants.text}\n`);
+    // Ask once, so macOS has a chance to offer its own dialog.
+    await permissions.requestAccessibility();
+  }
+}
 
 let board = survey(JSON.parse((await device.readFile("keymap.json")).toString("utf8")));
 
