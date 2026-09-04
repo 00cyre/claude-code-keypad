@@ -1,19 +1,27 @@
-// How a session's state becomes a colour.
+// How a session's state becomes light.
 //
-// The palette is deliberately blunt: at a glance across a desk you are asking
-// one question — does anything need me? — so only `stalled` and `yourTurn` are
-// bright, and idle sessions stay dim enough to read as background.
+// Two surfaces, driven from different data:
+//
+//   keys 1-6   one per session, each showing that session's own state
+//   everything else (the ambient ring, and any key no session has claimed)
+//              shows the *selected* session's state, so the board as a whole
+//              tells you where you are without you having to find the key
+//
+// Working pulses rather than sitting solid: a steady colour reads as a
+// finished state out of the corner of your eye, and "still going" is the one
+// thing you want to be able to tell apart at a glance from "come back to me".
+import { Effect } from "creator-micro-kit";
 import { State } from "./sessions.js";
 
 export const Look = {
-  [State.working]:  { color: "#2D7FF9", brightness: 1,    label: "working"   },
-  [State.stalled]:  { color: "#FF8C00", brightness: 1,    label: "needs you" },
-  [State.yourTurn]: { color: "#00C853", brightness: 1,    label: "your turn" },
-  [State.idle]:     { color: "#3A3A3A", brightness: 0.25, label: "idle"      },
+  [State.working]:  { color: "#2D7FF9", brightness: 1,    effect: Effect.breath, speed: 0.55, label: "working"   },
+  [State.stalled]:  { color: "#FF8C00", brightness: 1,    effect: Effect.solid,  speed: 0,    label: "needs you" },
+  [State.yourTurn]: { color: "#00C853", brightness: 1,    effect: Effect.solid,  speed: 0,    label: "your turn" },
+  [State.idle]:     { color: "#3A3A3A", brightness: 0.25, effect: Effect.solid,  speed: 0,    label: "idle"      },
 };
 
 /** Shown on a key with no session behind it. */
-export const Empty = { color: "#000000", brightness: 0, label: "—" };
+export const Empty = { color: "#000000", brightness: 0, effect: Effect.off, speed: 0, label: "—" };
 
 /** Most urgent first, for surfaces that can only show one colour. */
 export const Priority = [State.stalled, State.yourTurn, State.working, State.idle];
@@ -29,4 +37,15 @@ export function slots(sessions, count) {
 /** The single most urgent state present, or undefined if there are none. */
 export function mostUrgent(sessions) {
   return Priority.find((state) => sessions.some((session) => session.state === state));
+}
+
+/** A `setThreadColors` entry. Omitted fields keep their old value on the
+ *  device — and after a power cycle that value is zero — so send them all. */
+export function threadFor(id, look) {
+  return { id, color: look.color, brightness: look.brightness, effect: look.effect, speed: look.speed };
+}
+
+/** A `setZones` side: the ambient ring, or the keys no thread has claimed. */
+export function zoneFor(look) {
+  return { effect: look.effect, brightness: look.brightness, speed: look.speed, color: look.color, magic: 1 };
 }
