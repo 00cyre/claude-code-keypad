@@ -4,6 +4,30 @@ Live Claude Code session status on the keys of a [Work Louder Creator Micro 2](h
 
 Each key is one of your running sessions, coloured by what it is doing. Press a key to jump to that chat.
 
+## Setting it up with an agent
+
+Paste this to Claude Code, or any agent with shell access, and it will do the
+whole thing:
+
+```
+Set up my Work Louder Creator Micro 2 to show Claude Code session status on its keys.
+
+1. Run: npx github:00cyre/claude-code-keypad doctor
+2. If it reports a problem, tell me exactly what to click in the Work Louder
+   Input app to fix it. Two things are needed: a layer linked to the Claude
+   desktop app, and that layer's keys mapped to KV_OAI_AG00..KV_OAI_AG05.
+   Wait for me to do it, then run doctor again.
+3. Once doctor passes, run: npx github:00cyre/claude-code-keypad install
+4. Confirm with: npx github:00cyre/claude-code-keypad status
+
+Before changing anything on the device, back up my keymap with
+`npx creator-micro-kit pull keymap.json ./keymap.backup.json` and tell me the
+checksum. Quit the Input app before any write to the device — two writers
+corrupt each other. Note that KV_OAI_AG keycodes send no keystroke of their
+own, so any macros on those keys stop working from the device; the daemon
+sends Cmd+N instead. Tell me which macros that affects before you do it.
+```
+
 | Colour | Meaning |
 | --- | --- |
 | pulsing yellow | working — the assistant is mid-turn |
@@ -132,30 +156,6 @@ result.
 Sending `Cmd+N` needs Accessibility permission for whatever runs this — Terminal, iTerm, or `node` itself — in **System Settings › Privacy & Security › Accessibility**. Without it the keys still show status; they just do not switch chats, and you get one line saying so rather than silent failure.
 
 Run with `--no-switch` if you only want the lights.
-
-## Setting it up with an agent
-
-Paste this to Claude Code, or any agent with shell access, and it will do the
-whole thing:
-
-```
-Set up my Work Louder Creator Micro 2 to show Claude Code session status on its keys.
-
-1. Run: npx github:00cyre/claude-code-keypad doctor
-2. If it reports a problem, tell me exactly what to click in the Work Louder
-   Input app to fix it. Two things are needed: a layer linked to the Claude
-   desktop app, and that layer's keys mapped to KV_OAI_AG00..KV_OAI_AG05.
-   Wait for me to do it, then run doctor again.
-3. Once doctor passes, run: npx github:00cyre/claude-code-keypad install
-4. Confirm with: npx github:00cyre/claude-code-keypad status
-
-Before changing anything on the device, back up my keymap with
-`npx creator-micro-kit pull keymap.json ./keymap.backup.json` and tell me the
-checksum. Quit the Input app before any write to the device — two writers
-corrupt each other. Note that KV_OAI_AG keycodes send no keystroke of their
-own, so any macros on those keys stop working from the device; the daemon
-sends Cmd+N instead. Tell me which macros that affects before you do it.
-```
 
 ## Where the status comes from
 

@@ -24,7 +24,7 @@
     "darwin"
   ],
   "dependencies": {
-    "creator-micro-kit": "github:00cyre/creator-micro-kit#make-it-work"
+    "creator-micro-kit": "github:00cyre/creator-micro-kit"
   },
   "scripts": {
     "start": "node bin/cli.js",

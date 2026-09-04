@@ -74,15 +74,29 @@ const { Look } = await import("../src/status.js");
 const stamp = () => new Date().toTimeString().slice(0, 8);
 const say = (...parts) => console.log(stamp(), ...parts);
 
-/** Reads the keymap off the device and reports whether it can be driven. */
-async function inspect() {
-  const device = await open();
-  try {
-    const keymap = JSON.parse((await device.readFile("keymap.json")).toString("utf8"));
-    return { survey: survey(keymap), info: device.info };
-  } finally {
-    await device.close();
+/**
+ * Reads the keymap off the device and reports whether it can be driven.
+ *
+ * Retries, because the running service is talking to the same device: the
+ * keypad takes one request at a time per channel, and an 8KB file read is long
+ * enough to collide with a two-second poll. Losing that race is normal and not
+ * worth reporting as a fault.
+ */
+async function inspect({ attempts = 4 } = {}) {
+  let last;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const device = await open();
+    try {
+      const keymap = JSON.parse((await device.readFile("keymap.json")).toString("utf8"));
+      return { survey: survey(keymap), info: device.info };
+    } catch (error) {
+      last = error;
+    } finally {
+      await device.close();
+    }
+    if (attempt < attempts) await new Promise((r) => setTimeout(r, 400 * attempt));
   }
+  throw last;
 }
 
 if (command === "permissions") {
@@ -97,7 +111,8 @@ if (command === "permissions") {
 
 if (command === "doctor") {
   try {
-    const { survey: s, info } = await inspect();
+    // The running service holds the device; borrow it for the length of the check.
+    const { survey: s, info } = await service.withServicePaused(() => inspect());
     console.log(`device      : ${info.product} over ${info.transport}`);
     console.log(`claude app  : ${s.apps.map((a) => `${a.name} <${a.process}>`).join(", ") || "not linked"}`);
     console.log(`linked layer: ${s.linked.map(([k, l]) => `${k} ${l.name}`).join(", ") || "none"}`);

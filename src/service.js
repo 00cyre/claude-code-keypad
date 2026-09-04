@@ -140,6 +140,26 @@ export async function uninstall() {
   console.log(`  the copy in ${HOME} is left alone; delete it if you want it gone.`);
 }
 
+/**
+ * Runs `fn` with the service stopped, then puts it back exactly as it was.
+ * The keypad handles one request at a time per channel, so an 8KB keymap read
+ * loses to a two-second repaint loop more often than it wins. The restart is
+ * in a finally: a failed check must not leave somebody's lights off.
+ */
+export async function withServicePaused(fn) {
+  const uid = process.getuid();
+  const wasLoaded = await isLoaded(uid);
+  if (!wasLoaded) return fn();
+  await launchctl(["bootout", `gui/${uid}/${LABEL}`]);
+  await settle(uid, false, 5000);
+  try {
+    return await fn();
+  } finally {
+    await launchctl(["bootstrap", `gui/${uid}`, PLIST]);
+    await settle(uid, true, 5000);
+  }
+}
+
 /** Reports whether the login item is loaded, and where it points. */
 export async function status() {
   const uid = process.getuid();
