@@ -45,6 +45,9 @@ Install asks macOS for anything missing automatically; --no-prompt skips that.
 
 Options:
   --keys <n>          how many keys to drive (default 6)
+  --product-id <n>    only open this USB product id (default 0x8298,
+                      the Creator Micro 2); "any" opens the first Work
+                      Louder device found
   --interval <ms>     repaint interval (default 2000)
   --app <name>        bring this app forward before the keystroke
                       (default: send to whatever is already frontmost)
@@ -103,7 +106,7 @@ const say = (...parts) => console.log(stamp(), ...parts);
 async function inspect({ attempts = 4 } = {}) {
   let last;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const device = await open();
+    const device = await open({ productId: options.productId });
     try {
       const keymap = JSON.parse((await device.readFile("keymap.json")).toString("utf8"));
       return { survey: survey(keymap), info: device.info };
@@ -216,7 +219,7 @@ async function chooseLayer(board, detected) {
  * writers corrupt each other.
  */
 async function ensureMapped(layerKey, { assumeYes }) {
-  const device = await open();
+  const device = await open({ productId: options.productId });
   let bytes;
   try {
     bytes = await device.readFile("keymap.json");
@@ -261,7 +264,7 @@ async function ensureMapped(layerKey, { assumeYes }) {
     }
   }
   try {
-    const writer = await open();
+    const writer = await open({ productId: options.productId });
     try {
       await writer.writeFile("keymap.json", Buffer.from(JSON.stringify(plan.keymap)));
     } finally {
@@ -370,7 +373,7 @@ if (options.testSwitch !== null && options.testSwitch !== undefined) {
 async function waitForDevice() {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      return await open({ reconnect: true, reconnectDelay: 2000 });
+      return await open({ reconnect: true, reconnectDelay: 2000, productId: options.productId });
     } catch (error) {
       if (attempt === 0) say(`waiting for the keypad (${error.message})`);
       await new Promise((resolve) => setTimeout(resolve, Math.min(2000 * 2 ** attempt, 30_000)));
