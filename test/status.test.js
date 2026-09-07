@@ -100,7 +100,7 @@ test("the frontmost comparison actually evaluates", async () => {
   const { Switcher } = await import("../src/switcher.js");
   const probe = new Switcher({ app: "Finder" }).scriptFor(1)
     .split("\n")
-    .filter((line) => !/^tell application "Finder" to activate$/.test(line))
+    .filter((line) => !/to activate$/.test(line))
     .filter((line) => !/key code/.test(line))
     .join("\n");
 

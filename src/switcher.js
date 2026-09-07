@@ -38,37 +38,56 @@ export class Switcher {
     // it as anything more elaborate only added ways to fail.
     if (!this.#app) return press;
 
-    // --app opts into bringing something forward first. `activate` returns
-    // before the app is actually frontmost, so wait for it — but only as a
-    // courtesy: if it never arrives we still send the keystroke rather than
-    // silently doing nothing.
+    // --app opts into bringing something forward first — but only when it is
+    // not already there. Activating costs an Apple event, two wait loops and a
+    // settle delay for the web layer, and all of that is pure latency when you
+    // are already looking at the app. So ask who is frontmost first and, in the
+    // common case, go straight to the keystroke.
     const app = JSON.stringify(this.#app);
+    // `path to frontmost application` is a Standard Additions call and costs
+    // about 25ms; asking System Events for the process whose `frontmost is
+    // true` enumerates every process and costs five times that. It answers an
+    // HFS path ("Macintosh HD:Applications:Claude.app:"), so match on the
+    // bundle name — which is exactly what --app holds, since install reads it
+    // off the bundle. A name that is not a bundle basename simply misses and
+    // takes the slow path, which is correct, only slower. Same if the call
+    // fails: an empty answer matches nothing.
+    const suffix = JSON.stringify(`:${this.#app}.app:`);
     return [
-      `tell application ${app} to activate`,
-      `tell application "System Events"`,
-      `  repeat 40 times`,
-      // Bind the comparison to a variable first: `name of ... whose frontmost
-      // is true is not "X"` parses the `is true` into the outer comparison and
-      // fails with -1700 at runtime.
-      `    set fg to name of first application process whose frontmost is true`,
-      `    if fg is ${app} then exit repeat`,
-      `    delay 0.05`,
-      `  end repeat`,
+      `set fgPath to ""`,
+      `try`,
+      `  set fgPath to path to frontmost application as text`,
+      `end try`,
+      `if fgPath does not end with ${suffix} then`,
+      `  tell application ${app} to activate`,
+      `  tell application "System Events"`,
+      // `activate` returns before the app is actually frontmost, so wait for
+      // it — but only as a courtesy: if it never arrives we still send the
+      // keystroke rather than silently doing nothing. Bind the comparison to a
+      // variable first: `name of ... whose frontmost is true is not "X"` parses
+      // the `is true` into the outer comparison and fails with -1700.
+      `    repeat 40 times`,
+      `      set fg to name of first application process whose frontmost is true`,
+      `      if fg is ${app} then exit repeat`,
+      `      delay 0.05`,
+      `    end repeat`,
       // Frontmost is not focused. An Electron app reports frontmost a beat
-      // before its window takes keyboard focus, and a keystroke posted in
-      // that gap is delivered to nothing: Claude came forward and stayed on
-      // the same chat. So wait for a main window to be up (AXMain — Electron
-      // never sets AXFocused on the window, the focus lives in the web view),
-      // then a little longer still, since the web layer is later than the
-      // window.
-      `  repeat 20 times`,
-      `    try`,
-      `      if value of attribute "AXMain" of window 1 of application process ${app} is true then exit repeat`,
-      `    end try`,
-      `    delay 0.05`,
-      `  end repeat`,
-      `end tell`,
-      `delay 0.4`,
+      // before its window takes keyboard focus, and a keystroke posted in that
+      // gap is delivered to nothing: the app came forward and stayed on the
+      // same chat. So wait for a main window to be up (AXMain — Electron never
+      // sets AXFocused on the window, the focus lives in the web view), then a
+      // little longer still, since the web layer is later than the window.
+      // None of this is needed when it was already frontmost: the web layer has
+      // been listening for as long as you have been looking at it.
+      `    repeat 20 times`,
+      `      try`,
+      `        if value of attribute "AXMain" of window 1 of application process ${app} is true then exit repeat`,
+      `      end try`,
+      `      delay 0.05`,
+      `    end repeat`,
+      `  end tell`,
+      `  delay 0.4`,
+      `end if`,
       press,
     ].join("\n");
   }
