@@ -54,7 +54,19 @@ export class Switcher {
       `    if fg is ${app} then exit repeat`,
       `    delay 0.05`,
       `  end repeat`,
+      // Frontmost is not focused. An Electron app reports frontmost a beat
+      // before its window takes keyboard focus, and a keystroke posted in
+      // that gap is delivered to nothing: Claude came forward and stayed on
+      // the same chat. So wait for the window to say it is focused, then a
+      // little longer still, since the web layer is later than the window.
+      `  repeat 20 times`,
+      `    try`,
+      `      if value of attribute "AXFocused" of window 1 of application process ${app} is true then exit repeat`,
+      `    end try`,
+      `    delay 0.05`,
+      `  end repeat`,
       `end tell`,
+      `delay 0.25`,
       press,
     ].join("\n");
   }
