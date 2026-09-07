@@ -9,6 +9,7 @@ import { parse, STATE_FLAGS } from "../src/options.js";
 import * as service from "../src/service.js";
 import * as permissions from "../src/permissions.js";
 import * as remap from "../src/remap.js";
+import { focusDecided, focusTarget, focusQuestion, automationTarget } from "../src/focus.js";
 
 const raw = process.argv.slice(2);
 const command = raw[0] && !raw[0].startsWith("-") ? raw.shift() : null;
@@ -42,12 +43,14 @@ Usage:
   claude-code-keypad permissions      check macOS grants (--fix opens Settings)
 
 Install asks macOS for anything missing automatically; --no-prompt skips that.
+It also asks, once, whether a chat key should bring the app forward first.
 
 Options:
   --keys <n>          how many keys to drive (default 6)
   --interval <ms>     repaint interval (default 2000)
-  --app <name>        bring this app forward before the keystroke
-                      (default: send to whatever is already frontmost)
+  --app <name>        bring this app forward before the keystroke; install
+                      asks this, defaulting to the app the Input app links
+  --app none          send it to whatever is already frontmost, and do not ask
   --no-switch         show status only; do not send Cmd+N on a keypress
   --any-layer         drive every layer, not only the Claude-linked one
   --only-on-layer     send colours only while the chosen layer is active
@@ -282,11 +285,50 @@ async function ensureMapped(layerKey, { assumeYes }) {
   }
 }
 
+/**
+ * Asks whether a chat key should bring the app forward before the keystroke.
+ *
+ * Returns the --app value to record: the app's name, "none" for a no, or null
+ * when nothing was decided (not a terminal, or nothing to offer) so a later
+ * interactive run still asks.
+ */
+async function askFocus(board, layerKey) {
+  const target = await focusTarget(board, layerKey);
+  if (!target) {
+    console.log("\nNo app to bring forward (nothing linked in the Input app, and the Claude");
+    console.log("desktop app was not found), so keys send the shortcut to whatever is in front.");
+    return null;
+  }
+  if (!process.stdin.isTTY) {
+    console.log(`\nKeys will send the shortcut to whatever is in front. To bring ${target.name}`);
+    console.log(`forward first, install with:  --app ${JSON.stringify(target.name)}`);
+    return null;
+  }
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(focusQuestion(target))).trim().toLowerCase();
+    if (answer && !/^y(es)?$/.test(answer)) {
+      console.log(`\nLeft alone: keys send the shortcut to whatever is in front. (--app none)`);
+      return "none";
+    }
+    console.log(`\nSelected: a chat key brings ${target.name} forward first. (--app ${JSON.stringify(target.name)})`);
+    return target.name;
+  } finally {
+    rl.close();
+  }
+}
+
+/** The value after `flag` in an argument list, or undefined when it is absent. */
+const valueOf = (args, flag) => (args.includes(flag) ? args[args.indexOf(flag) + 1] : undefined);
+
 if (command === "install" || command === "update") {
   const args = [...raw.filter((a) => a !== "--no-prompt")];
   let board = null;
   try {
-    board = (await inspect()).survey;
+    // The running copy holds the device, and an 8KB read over Bluetooth loses
+    // to its two-second repaint more often than not; borrow it, as doctor does.
+    board = (await service.withServicePaused(() => inspect())).survey;
   } catch (error) {
     console.error(`Could not read the keypad (${error.message}) — installing anyway.`);
   }
@@ -302,15 +344,24 @@ if (command === "install" || command === "update") {
       // do it by hand. One run should leave a working keypad.
       if (!board.layers.get(picked)?.agKeys) {
         await ensureMapped(picked, { assumeYes: raw.includes("--yes") || raw.includes("-y") });
-        board = (await inspect().catch(() => ({ survey: board }))).survey;
+        board = (await service.withServicePaused(() => inspect()).catch(() => ({ survey: board }))).survey;
       }
     }
+  }
+
+  // Ask, once, whether a key press should bring the app forward first. An
+  // answer is baked in as --app, so update keeps it and does not ask again;
+  // an install made before this existed gets asked on its next update.
+  if (board && !focusDecided(args)) {
+    const layerKey = valueOf(args, "--layer") ?? board.drivable[0]?.[0] ?? board.linked[0]?.[0];
+    const chosen = await askFocus(board, layerKey);
+    if (chosen) args.push("--app", chosen);
   }
 
   await service.install(args);
 
   const grants = await permissions.report({
-    app: options.app && options.app !== "none" ? options.app : "System Events",
+    app: automationTarget(args),
     nodePath: service.stableNodePath(),
   });
   if (!grants.ok) {
@@ -329,7 +380,7 @@ if (command === "install" || command === "update") {
   }
 
   if (board) {
-    const pinned = options.layer || args[args.indexOf("--layer") + 1];
+    const pinned = options.layer || valueOf(args, "--layer");
     if (board.drivable.length || pinned) {
       console.log(`✓ will drive ${board.drivable[0]?.[0] ?? pinned}${board.drivable.length ? " (linked to Claude)" : " (pinned)"}.`);
     } else {

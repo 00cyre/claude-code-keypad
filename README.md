@@ -109,6 +109,33 @@ app's numbering, with the detected one as the default:
 
 `--layer 1/1` pins one without being asked; `--yes` skips the confirmation.
 
+### Bringing the app forward
+
+The keys that show colour send no keystroke of their own, so this sends `Cmd+N`
+itself — and by default to whatever is in front. Pressed from your editor,
+that opens tab N of your editor. So `install` asks, once:
+
+```
+Bring Claude to the front when you press a chat key?
+
+The Input app links this layer to Claude, so a key press can switch to it
+first and then jump to the chat, from whatever you happen to be looking at.
+Without this, the shortcut goes to whichever app is already in front.
+
+Auto-focus Claude? [Y/n]
+```
+
+It offers the app the Input app links the chosen layer to, by the name the
+bundle has on disk (the Input app's own label is not always the one
+AppleScript answers to). A layer linked to nothing gets the Claude desktop
+app. The answer is baked in as `--app Claude` or `--app none`, so `update`
+keeps it and does not ask again; an install made before this existed is asked
+on its next `update`. `--app <name>` on the command line answers it in
+advance, and `--no-switch` makes the question moot.
+
+Bringing another app forward needs an Automation grant for it, which
+`install` checks and asks macOS for along with Accessibility.
+
 If the layer you choose does not have the keycodes, it maps them: it backs the
 keymap up to `~/.claude-code-keypad/backups/`, prints exactly which keys change
 and which macros stop working, quits the Input app for the write (the device
