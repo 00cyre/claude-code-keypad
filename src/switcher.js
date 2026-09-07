@@ -57,16 +57,18 @@ export class Switcher {
       // Frontmost is not focused. An Electron app reports frontmost a beat
       // before its window takes keyboard focus, and a keystroke posted in
       // that gap is delivered to nothing: Claude came forward and stayed on
-      // the same chat. So wait for the window to say it is focused, then a
-      // little longer still, since the web layer is later than the window.
+      // the same chat. So wait for a main window to be up (AXMain — Electron
+      // never sets AXFocused on the window, the focus lives in the web view),
+      // then a little longer still, since the web layer is later than the
+      // window.
       `  repeat 20 times`,
       `    try`,
-      `      if value of attribute "AXFocused" of window 1 of application process ${app} is true then exit repeat`,
+      `      if value of attribute "AXMain" of window 1 of application process ${app} is true then exit repeat`,
       `    end try`,
       `    delay 0.05`,
       `  end repeat`,
       `end tell`,
-      `delay 0.25`,
+      `delay 0.4`,
       press,
     ].join("\n");
   }
