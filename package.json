@@ -28,7 +28,7 @@
   },
   "scripts": {
     "start": "node bin/cli.js",
-    "check": "node --check src/sessions.js && node --check src/status.js && node --check src/switcher.js && node --check src/service.js && node --check src/focus.js && node --check bin/cli.js",
+    "check": "node --check src/sessions.js && node --check src/status.js && node --check src/switcher.js && node --check src/service.js && node --check bin/cli.js",
     "test": "node --test test/*.test.js"
   },
   "keywords": [

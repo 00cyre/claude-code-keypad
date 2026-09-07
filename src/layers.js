@@ -43,8 +43,7 @@ const looksLikeClaude = (app, ids) => {
  * to explain to somebody why their keypad is not lighting up.
  */
 export function survey(keymap, { bundleIds = CLAUDE_BUNDLE_IDS } = {}) {
-  const allApps = keymap.linkedApps ?? [];
-  const apps = allApps.filter((app) => looksLikeClaude(app, bundleIds));
+  const apps = (keymap.linkedApps ?? []).filter((app) => looksLikeClaude(app, bundleIds));
   const appIds = new Set(apps.map((app) => app.id));
 
   const layers = new Map();
@@ -63,7 +62,7 @@ export function survey(keymap, { bundleIds = CLAUDE_BUNDLE_IDS } = {}) {
 
   const linked = [...layers].filter(([, l]) => l.linked);
   const drivable = linked.filter(([, l]) => l.agKeys > 0);
-  return { apps, allApps, layers, linked, drivable };
+  return { apps, layers, linked, drivable };
 }
 
 /**
