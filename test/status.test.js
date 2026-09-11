@@ -118,6 +118,7 @@ test("every documented flag is accepted by the parser", async () => {
   const documented = [...stdout.matchAll(/^\s{2}(--[a-z-]+)/gm)].map((m) => m[1]);
   const sample = {
     "--keys": "4", "--interval": "2000", "--app": "Finder",
+    "--product-id": "0x8298",
     "--layer": "1/1", "--test-switch": "1",
     "--working": "#FFC400", "--needs-you": "#00C853",
     "--your-turn": "#00C853", "--idle": "#2D7FF9",
@@ -160,4 +161,44 @@ test("chats sharing a title collapse to the most recently active one", async () 
     { sessionId: "e", title: "ssd", titled: false, since: 40 },              // not identity
   ];
   assert.deepEqual(collapseByTitle(rows).map((r) => r.sessionId), ["a", "c", "d", "e"]);
+});
+
+test("the keypad opens under either Creator Micro 2 product id", async () => {
+  // The same device reports as 0x8298 or 0x8297 depending on how the firmware
+  // enumerates. Pinning only the first would leave the other unable to open at
+  // all — worse than the first-device-wins behaviour the filter replaces.
+  const { openKeypad, CREATOR_MICRO_V2_IDS } = await import("../src/keypad.js");
+
+  const tried = [];
+  const onlyAlt = async ({ productId }) => {
+    tried.push(productId);
+    if (productId !== 0x8297) throw new Error("no Work Louder device found");
+    return { info: { productId } };
+  };
+  const device = await openKeypad(CREATOR_MICRO_V2_IDS, {}, onlyAlt);
+  assert.equal(device.info.productId, 0x8297);
+  assert.deepEqual(tried, [0x8298, 0x8297]);
+});
+
+test("a pinned product id is not silently widened to the other one", async () => {
+  const { openKeypad } = await import("../src/keypad.js");
+  const tried = [];
+  const none = async ({ productId }) => {
+    tried.push(productId);
+    throw new Error("no Work Louder device found");
+  };
+  await assert.rejects(() => openKeypad([0x8360], {}, none), /no Work Louder device/u);
+  assert.deepEqual(tried, [0x8360]);
+});
+
+test("--product-id any opens whatever is there, with no filter", async () => {
+  const { openKeypad } = await import("../src/keypad.js");
+  let seen;
+  const any = async (options) => {
+    seen = options;
+    return { info: {} };
+  };
+  await openKeypad(null, { reconnect: true }, any);
+  assert.equal("productId" in seen, false);
+  assert.equal(seen.reconnect, true);
 });
