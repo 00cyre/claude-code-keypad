@@ -1,5 +1,6 @@
 // Command-line parsing, kept out of the daemon so it can be tested.
 import { DEFAULTS } from "./status.js";
+import { CREATOR_MICRO_V2_IDS } from "./keypad.js";
 
 /** CLI spellings for the four states. */
 export const STATE_FLAGS = {
@@ -19,12 +20,12 @@ export const DEFAULT_OPTIONS = {
   anyLayer: false,
   onlyOnLayer: false,
   assumeYes: false,
-  // Only open the Creator Micro 2 (0x303A:0x8298). Without a filter the bridge
-  // opens the first Work Louder device it finds, so on a Mac that also has a
-  // Codex Micro (0x8360) this would grab it whenever the Creator Micro 2 is
-  // asleep and paint Claude colours over the Codex ones. --product-id any
-  // restores the old behaviour.
-  productId: 0x8298,
+  // Only open the Creator Micro 2. Without a filter the bridge opens the first
+  // Work Louder device it finds, so on a Mac that also has a Codex Micro
+  // (0x8360) this would grab it whenever the Creator Micro 2 is asleep and
+  // paint Claude colours over the Codex ones. Two ids because the same keypad
+  // enumerates as either; --product-id any restores the old behaviour.
+  productIds: CREATOR_MICRO_V2_IDS,
 };
 
 /**
@@ -64,8 +65,15 @@ export function parse(argv) {
       case "--keys": options.keys = Number(next()); break;
       case "--product-id": {
         const v = next();
-        options.productId = v === "any" ? undefined : Number(v);
-        if (v !== "any" && !Number.isInteger(options.productId)) throw new Error(`--product-id wants a number like 0x8298, or any — got ${v}`);
+        if (v === "any") {
+          options.productIds = null;
+          break;
+        }
+        const id = Number(v);
+        if (!Number.isInteger(id) || id <= 0) {
+          throw new Error(`--product-id wants a number like 0x8298, or any — got ${v}`);
+        }
+        options.productIds = [id];
         break;
       }
       case "--interval": options.interval = Number(next()); break;

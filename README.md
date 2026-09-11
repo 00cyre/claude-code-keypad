@@ -226,13 +226,13 @@ claude-code-keypad [--keys 6] [--interval 2000] [--product-id 0x8298] [--no-swit
 
 `--once` paints a single frame and exits, which is the quick way to see what it would show.
 
-`--product-id` says which keypad to open. It defaults to the Creator Micro 2
-(`0x8298`), so a Codex Micro on the same Mac is left alone — without the
-filter the bridge takes the first Work Louder device it finds, which means
-this would seize the Codex Micro whenever the Creator Micro 2 drops off
-Bluetooth and paint Claude colours over the Codex ones. Pass `any` for the
-old behaviour, or another id if your keypad reports a different one
-(`npx creator-micro-kit devices` lists them).
+`--product-id` says which keypad to open. It defaults to the Creator Micro 2,
+trying both ids that device reports (`0x8298` then `0x8297`), so a Codex Micro
+on the same Mac is left alone — without the filter the bridge takes the first
+Work Louder device it finds, which means this would seize the Codex Micro
+whenever the Creator Micro 2 drops off Bluetooth and paint Claude colours over
+the Codex ones. Pass `any` for the old behaviour, or a number to pin one
+specific id (`npx creator-micro-kit devices` lists what is attached).
 
 ## License
 
